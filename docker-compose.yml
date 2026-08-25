@@ -1,0 +1,13 @@
+services:
+  warasset:
+    build: .
+    ports:
+      - "5001:5001"
+    volumes:
+      - warasset_data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+volumes:
+  warasset_data:

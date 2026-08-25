@@ -1,0 +1,16 @@
+# Hemligheter/miljövariabler
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Lokal data (databas, klonade BSData-repon, uppladdade foton)
+data/
+
+*.log
+
+# Claude Code-lokala filer — hör inte till projektet, ska aldrig committas.
+.claude/settings.local.json
+.claude/*.lock

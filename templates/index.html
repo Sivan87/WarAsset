@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <title>WarAsset</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { margin: 0; background: #161826; color: #e9e9ed; font-family: -apple-system, Segoe UI, Inter, system-ui, sans-serif; padding: 40px; }
+    h1 { margin: 0 0 6px; }
+    p.sub { color: rgba(233,233,237,0.6); margin: 0 0 28px; }
+    table { border-collapse: collapse; width: 100%; max-width: 640px; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(233,233,237,0.12); }
+    th { color: rgba(233,233,237,0.5); font-weight: 500; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    code { background: rgba(233,233,237,0.08); padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>WarAsset</h1>
+  <p class="sub">Backend (Fas 1) är klar. UI (Fas 2, baserat på Miniatyrarkiv.dc.html) är inte påbörjad än — se CLAUDE.md.</p>
+
+  <table>
+    <thead>
+      <tr><th>Spelsystem</th><th>BSData-repo</th><th>Senast synkad</th></tr>
+    </thead>
+    <tbody>
+      {% for gs in game_systems %}
+      <tr>
+        <td>{{ gs.name }} (<code>{{ gs.key }}</code>)</td>
+        <td><code>{{ gs.bsdata_repo }}</code></td>
+        <td>{{ gs.last_synced_at or "aldrig (synkar just nu i bakgrunden)" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="sub" style="margin-top:28px">
+    JSON-API: <code>/api/entries/search?system=40k&amp;q=plague</code>,
+    <code>/api/units</code>, <code>POST /api/sync</code>. Se CLAUDE.md för hela listan.
+  </p>
+</body>
+</html>

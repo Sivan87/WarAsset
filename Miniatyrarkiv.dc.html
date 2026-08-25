@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+body{margin:0;background:#161826;color:#e9e9ed;font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box}
+::selection{background:rgba(145,132,217,0.3)}
+::placeholder{color:rgba(233,233,237,0.4)}
+a{color:#9184d9;text-underline-offset:3px}
+input:focus-visible,textarea:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid #9184d9;outline-offset:2px}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(145,132,217,0)}50%{box-shadow:0 0 0 5px rgba(145,132,217,0.22)}}
+@keyframes barGrow{from{width:0}}
+@keyframes dialogIn{from{opacity:0;transform:translateY(8px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+input[type=number]::-webkit-inner-spin-button{opacity:0.6}
+</style>
+</helmet>
+
+<div style="min-height:100vh;padding-bottom:64px">
+
+  <!-- Nav -->
+  <nav style="display:flex;align-items:center;gap:18px;padding:12px 28px;border-bottom:1px solid rgba(233,233,237,0.1);max-width:1160px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:10px;margin-right:auto">
+      <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+        <polygon points="16,4 26.4,10 26.4,22 16,28 5.6,22 5.6,10" stroke="#9184d9" stroke-width="1.5"/>
+        <line x1="16" y1="0" x2="16" y2="5" stroke="#9184d9" stroke-width="1.5"/>
+        <line x1="16" y1="27" x2="16" y2="32" stroke="#9184d9" stroke-width="1.5"/>
+        <line x1="0" y1="16" x2="5" y2="16" stroke="#9184d9" stroke-width="1.5"/>
+        <line x1="27" y1="16" x2="32" y2="16" stroke="#9184d9" stroke-width="1.5"/>
+        <rect x="13.5" y="13.5" width="5" height="5" fill="#9184d9" transform="rotate(45 16 16)"/>
+      </svg>
+      <div>
+        <div style="font-family:Inter;font-weight:500;font-size:17px;line-height:1.1;letter-spacing:-0.01em">WarAsset</div>
+        <div style="font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:rgba(233,233,237,0.45)">Miniatyrregister</div>
+      </div>
+    </div>
+    <div style="position:relative;width:240px">
+      <input class="input" type="text" placeholder="Sök enhet…" value="{{ search }}" oninput="{{ onSearchChange }}" style="width:100%;min-height:36px;padding:6px 12px;font:inherit;font-size:14px;color:#e9e9ed;background:#232532;border:1px solid rgba(233,233,237,0.16);border-radius:8px" />
+    </div>
+    <div style="display:inline-flex;overflow:hidden;border:1px solid rgba(233,233,237,0.16);border-radius:8px">
+      <label style="display:inline-flex;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;color:{{ filterAllColor }};box-shadow:{{ filterAllShadow }}"><input type="radio" name="sysfilter" checked="{{ filterAll }}" onChange="{{ setFilterAll }}" style="position:absolute;opacity:0;width:0;height:0" />Alla</label>
+      <label style="display:inline-flex;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ filter40kColor }};box-shadow:{{ filter40kShadow }}"><input type="radio" name="sysfilter" checked="{{ filter40k }}" onChange="{{ setFilter40k }}" style="position:absolute;opacity:0;width:0;height:0" />40k</label>
+      <label style="display:inline-flex;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ filterKtColor }};box-shadow:{{ filterKtShadow }}"><input type="radio" name="sysfilter" checked="{{ filterKt }}" onChange="{{ setFilterKt }}" style="position:absolute;opacity:0;width:0;height:0" />Kill Team</label>
+      <label style="display:inline-flex;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ filterAosColor }};box-shadow:{{ filterAosShadow }}"><input type="radio" name="sysfilter" checked="{{ filterAos }}" onChange="{{ setFilterAos }}" style="position:absolute;opacity:0;width:0;height:0" />AoS</label>
+    </div>
+    <button type="button" onClick="{{ openAdd }}" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:Inter;font-weight:500;font-size:14px;color:#9184d9;background:transparent;border:1px solid #9184d9;padding:9px 16px;border-radius:8px" style-hover="background:rgba(145,132,217,0.12)" style-active="background:rgba(145,132,217,0.22)">+ Ny enhet</button>
+  </nav>
+
+  <!-- Stat band -->
+  <div style="background:linear-gradient(135deg,#262a60,#353b80 130%)">
+  <div style="max-width:1160px;margin:0 auto;padding:20px 28px;display:grid;grid-template-columns:repeat(4,1fr);gap:28px">
+    <div>
+      <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#c8c4ee">Enheter</div>
+      <div style="font-family:Inter;font-weight:500;font-size:34px;line-height:1.15">{{ stats.totalUnits }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#c8c4ee">Modeller</div>
+      <div style="font-family:Inter;font-weight:500;font-size:34px;line-height:1.15">{{ stats.totalModels }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#c8c4ee">Poäng totalt</div>
+      <div style="font-family:Inter;font-weight:500;font-size:34px;line-height:1.15">{{ stats.totalPoints }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#c8c4ee">Målade</div>
+      <div style="font-family:Inter;font-weight:500;font-size:34px;line-height:1.15">{{ stats.paintedPct }}%</div>
+      <div style="height:5px;border-radius:3px;background:rgba(255,255,255,0.15);margin-top:8px;overflow:hidden">
+        <div style="height:100%;border-radius:3px;background:#9184d9;transition:width 0.6s ease;width:{{ stats.paintedPctStyle }}"></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div style="display:flex;align-items:center;gap:10px;padding:14px 28px 4px;max-width:1160px;margin:0 auto">
+    <div style="display:inline-flex;overflow:hidden;border:1px solid rgba(233,233,237,0.16);border-radius:8px">
+      <label style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;font-size:13px;cursor:pointer;color:{{ viewGridColor }};box-shadow:{{ viewGridShadow }}"><input type="radio" name="viewmode" checked="{{ viewGrid }}" onChange="{{ setViewGrid }}" style="position:absolute;opacity:0;width:0;height:0" />Galleri</label>
+      <label style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ viewListColor }};box-shadow:{{ viewListShadow }}"><input type="radio" name="viewmode" checked="{{ viewList }}" onChange="{{ setViewList }}" style="position:absolute;opacity:0;width:0;height:0" />Lista</label>
+    </div>
+    <select onChange="{{ onSortChange }}" value="{{ sortKey }}" style="min-height:36px;padding:6px 10px;font:inherit;font-size:13px;color:#e9e9ed;background:#232532;border:1px solid rgba(233,233,237,0.16);border-radius:8px">
+      <option value="name">Sortera: Namn</option>
+      <option value="points">Sortera: Poäng</option>
+      <option value="count">Sortera: Antal</option>
+      <option value="status">Sortera: Status</option>
+    </select>
+    <select onChange="{{ onFilterRoleChange }}" value="{{ filterRole }}" style="min-height:36px;padding:6px 10px;font:inherit;font-size:13px;color:#e9e9ed;background:#232532;border:1px solid rgba(233,233,237,0.16);border-radius:8px">
+      <option value="all">Typ: Alla</option>
+      <sc-for list="{{ roleOptions }}" as="r" hint-placeholder-count="4"><option value="{{ r }}">Typ: {{ r }}</option></sc-for>
+    </select>
+    <div style="margin-left:auto;font-size:12px;color:rgba(233,233,237,0.5)">{{ stats.visibleLabel }}</div>
+  </div>
+
+  <!-- Groups -->
+  <div style="max-width:1160px;margin:0 auto">
+  <sc-for list="{{ groups }}" as="group" hint-placeholder-count="3">
+    <div style="padding:10px 28px 2px">
+      <div onClick="{{ group.toggleFn }}" style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px 0;border-bottom:1px solid rgba(233,233,237,0.1)">
+        <span style="display:inline-block;transform:{{ group.chevronRotate }};transition:transform 0.2s ease;font-size:11px;color:rgba(233,233,237,0.5)">▶</span>
+        <h3 style="margin:0;font-size:18px">{{ group.name }}</h3>
+        <span style="font-size:10px;letter-spacing:0.08em;text-transform:uppercase;padding:3px 8px;border-radius:6px;background:#3f424d;color:#f3f5fe">{{ group.systemLabel }}</span>
+        <span style="font-size:12px;color:rgba(233,233,237,0.5)">{{ group.count }} enheter · {{ group.models }} modeller · {{ group.points }} p</span>
+      </div>
+
+      <sc-if value="{{ group.expanded }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <!-- grid view -->
+          <sc-if value="{{ viewGrid }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:18px 0 6px">
+              <sc-for list="{{ group.units }}" as="u" hint-placeholder-count="3">
+                <div style="display:flex;flex-direction:column;gap:0;border-radius:10px;background:#232532;box-shadow:0 0 0 1px #3f424d;overflow:hidden;animation:fadeUp 0.4s ease both;animation-delay:{{ u.animDelay }};transition:transform 0.2s ease,box-shadow 0.2s ease" style-hover="transform:translateY(-4px);box-shadow:0 0 0 1px #595d6c, 0 10px 24px rgba(0,0,0,0.5)">
+                  <div style="height:120px;background:repeating-linear-gradient(135deg,#2b2d3a,#2b2d3a 10px,#262834 10px,#262834 20px);display:flex;align-items:center;justify-content:center">
+                    <span style="font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:0.06em;color:rgba(233,233,237,0.35)">FOTO: {{ u.name }}</span>
+                  </div>
+                  <div style="padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+                      <div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#9184d9">{{ u.army }}</div>
+                      <div style="font-size:10px;letter-spacing:0.04em;padding:2px 7px;border-radius:5px;background:rgba(233,233,237,0.08);color:rgba(233,233,237,0.6)">{{ u.role }}</div>
+                    </div>
+                    <div style="font-family:Inter;font-weight:500;font-size:16px;line-height:1.25">{{ u.name }}</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:rgba(233,233,237,0.6)">
+                      <span>{{ u.count }} mod.</span>
+                      <span>{{ u.pointsLabel }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px">
+                      <span style="display:inline-flex;align-items:center;font-size:11px;letter-spacing:0.02em;padding:3px 10px;border-radius:6px;background:{{ u.statusBg }};color:{{ u.statusFg }};border:{{ u.statusBorder }};animation:{{ u.statusAnim }}">{{ u.statusLabel }}</span>
+                      <div style="display:flex;gap:6px">
+                        <button type="button" onClick="{{ u.editFn }}" style="font-size:11px;color:#9184d9;background:transparent;border:none;cursor:pointer;padding:4px 6px" style-hover="text-decoration:underline">Redigera</button>
+                        <button type="button" onClick="{{ u.deleteFn }}" style="font-size:11px;color:rgba(233,233,237,0.4);background:transparent;border:none;cursor:pointer;padding:4px 6px" style-hover="color:#e9e9ed">Ta bort</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <!-- list view -->
+          <sc-if value="{{ viewList }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#1e2030;border-radius:10px;box-shadow:0 0 0 1px #3f424d;overflow:hidden;margin:10px 0 6px">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed">
+              <colgroup>
+                <col style="width:46%" /><col style="width:12%" /><col style="width:14%" /><col style="width:14%" /><col style="width:14%" />
+              </colgroup>
+              <thead>
+                <tr style="background:#262838">
+                  <th style="text-align:left;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(233,233,237,0.55);padding:9px 14px;font-weight:400">Enhet</th>
+                  <th style="text-align:right;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(233,233,237,0.55);padding:9px 10px;font-weight:400">Antal</th>
+                  <th style="text-align:right;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(233,233,237,0.55);padding:9px 10px;font-weight:400">Poäng</th>
+                  <th style="text-align:center;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(233,233,237,0.55);padding:9px 10px;font-weight:400">Status</th>
+                  <th style="text-align:right;padding:9px 14px"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ group.units }}" as="u" hint-placeholder-count="3">
+                  <tr style="border-top:1px solid rgba(233,233,237,0.08)" style-hover="background:rgba(233,233,237,0.04)">
+                    <td style="padding:8px 14px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.name }} <span style="font-size:11px;color:rgba(233,233,237,0.4)">· {{ u.role }}</span></td>
+                    <td style="padding:8px 10px;text-align:right;vertical-align:middle;color:rgba(233,233,237,0.75)">{{ u.count }}</td>
+                    <td style="padding:8px 10px;text-align:right;vertical-align:middle;color:rgba(233,233,237,0.75)">{{ u.pointsLabel }}</td>
+                    <td style="padding:8px 10px;text-align:center;vertical-align:middle"><span style="display:inline-flex;align-items:center;font-size:10.5px;padding:3px 9px;border-radius:6px;background:{{ u.statusBg }};color:{{ u.statusFg }};border:{{ u.statusBorder }}">{{ u.statusLabel }}</span></td>
+                    <td style="padding:8px 14px;text-align:right;vertical-align:middle;white-space:nowrap">
+                      <button type="button" onClick="{{ u.editFn }}" style="font-size:11.5px;color:#9184d9;background:transparent;border:none;cursor:pointer;padding:4px 6px">Redigera</button>
+                      <button type="button" onClick="{{ u.deleteFn }}" style="font-size:11.5px;color:rgba(233,233,237,0.4);background:transparent;border:none;cursor:pointer;padding:4px 6px" style-hover="color:#e9e9ed">Ta bort</button>
+                    </td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ group.isEmpty }}" hint-placeholder-val="{{ false }}">
+            <p style="font-size:13px;color:rgba(233,233,237,0.4);padding:16px 0">Inga enheter matchar sökningen i denna grupp.</p>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+  </sc-for>
+  </div>
+
+  <sc-if value="{{ noGroups }}" hint-placeholder-val="{{ false }}">
+    <div style="padding:60px 28px;text-align:center;color:rgba(233,233,237,0.5)">
+      <p style="font-size:15px">Inga enheter matchar din sökning.</p>
+    </div>
+  </sc-if>
+
+  <!-- Add/Edit dialog -->
+  <sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;display:grid;place-items:center;padding:18px;background:rgba(41,43,49,0.6);z-index:50" onClick="{{ closeDialog }}">
+      <div onClick="{{ stopClick }}" style="width:min(460px,100%);display:flex;flex-direction:column;gap:14px;padding:22px;border-radius:14px;background:#232532;box-shadow:0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);animation:dialogIn 0.2s ease both">
+        <div style="font-family:Inter;font-weight:500;font-size:20px">{{ dialogTitle }}</div>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <label style="font-size:12px;color:rgba(233,233,237,0.7)">Namn</label>
+          <input class="input" type="text" value="{{ draft.name }}" oninput="{{ onDraftName }}" style="width:100%;min-height:36px;padding:6px 10px;font:inherit;font-size:14px;color:#e9e9ed;background:#161826;border:1px solid rgba(233,233,237,0.16);border-radius:8px" placeholder="t.ex. Intercessor Squad" />
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <label style="font-size:12px;color:rgba(233,233,237,0.7)">Spelsystem</label>
+          <div style="display:inline-flex;overflow:hidden;border:1px solid rgba(233,233,237,0.16);border-radius:8px;width:fit-content">
+            <label style="display:inline-flex;align-items:center;padding:7px 14px;font-size:13px;cursor:pointer;color:{{ draftSys40kColor }};box-shadow:{{ draftSys40kShadow }}"><input type="radio" name="draftsys" checked="{{ draftSys40k }}" onChange="{{ setDraftSys40k }}" style="position:absolute;opacity:0" />40k</label>
+            <label style="display:inline-flex;align-items:center;padding:7px 14px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ draftSysKtColor }};box-shadow:{{ draftSysKtShadow }}"><input type="radio" name="draftsys" checked="{{ draftSysKt }}" onChange="{{ setDraftSysKt }}" style="position:absolute;opacity:0" />Kill Team</label>
+            <label style="display:inline-flex;align-items:center;padding:7px 14px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ draftSysAosColor }};box-shadow:{{ draftSysAosShadow }}"><input type="radio" name="draftsys" checked="{{ draftSysAos }}" onChange="{{ setDraftSysAos }}" style="position:absolute;opacity:0" />AoS</label>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <label style="font-size:12px;color:rgba(233,233,237,0.7)">Fraktion / armé</label>
+          <input class="input" list="army-suggestions" type="text" value="{{ draft.army }}" oninput="{{ onDraftArmy }}" style="width:100%;min-height:36px;padding:6px 10px;font:inherit;font-size:14px;color:#e9e9ed;background:#161826;border:1px solid rgba(233,233,237,0.16);border-radius:8px" placeholder="t.ex. Death Guard" />
+          <datalist id="army-suggestions">
+            <sc-for list="{{ armyNames }}" as="a" hint-placeholder-count="6"><option value="{{ a }}"></option></sc-for>
+          </datalist>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <label style="font-size:12px;color:rgba(233,233,237,0.7)">Typ</label>
+          <select onChange="{{ onDraftRole }}" value="{{ draft.role }}" style="width:100%;min-height:36px;padding:6px 10px;font:inherit;font-size:14px;color:#e9e9ed;background:#161826;border:1px solid rgba(233,233,237,0.16);border-radius:8px">
+            <sc-for list="{{ roleOptionsForm }}" as="r" hint-placeholder-count="4"><option value="{{ r }}">{{ r }}</option></sc-for>
+          </select>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <label style="font-size:12px;color:rgba(233,233,237,0.7)">Antal modeller</label>
+            <input class="input" type="number" min="1" value="{{ draft.count }}" oninput="{{ onDraftCount }}" style="width:100%;min-height:36px;padding:6px 10px;font:inherit;font-size:14px;color:#e9e9ed;background:#161826;border:1px solid rgba(233,233,237,0.16);border-radius:8px" />
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <label style="font-size:12px;color:rgba(233,233,237,0.7)">Poäng (valfritt)</label>
+            <input class="input" type="number" min="0" value="{{ draft.points }}" oninput="{{ onDraftPoints }}" style="width:100%;min-height:36px;padding:6px 10px;font:inherit;font-size:14px;color:#e9e9ed;background:#161826;border:1px solid rgba(233,233,237,0.16);border-radius:8px" placeholder="–" />
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <label style="font-size:12px;color:rgba(233,233,237,0.7)">Målastatus</label>
+          <div style="display:inline-flex;overflow:hidden;border:1px solid rgba(233,233,237,0.16);border-radius:8px;width:fit-content">
+            <label style="display:inline-flex;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;color:{{ draftStUnbuiltColor }};box-shadow:{{ draftStUnbuiltShadow }}"><input type="radio" name="draftstatus" checked="{{ draftStUnbuilt }}" onChange="{{ setDraftStUnbuilt }}" style="position:absolute;opacity:0" />Ej byggd</label>
+            <label style="display:inline-flex;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ draftStBuiltColor }};box-shadow:{{ draftStBuiltShadow }}"><input type="radio" name="draftstatus" checked="{{ draftStBuilt }}" onChange="{{ setDraftStBuilt }}" style="position:absolute;opacity:0" />Byggd</label>
+            <label style="display:inline-flex;align-items:center;padding:7px 12px;font-size:13px;cursor:pointer;border-left:1px solid rgba(233,233,237,0.16);color:{{ draftStPaintedColor }};box-shadow:{{ draftStPaintedShadow }}"><input type="radio" name="draftstatus" checked="{{ draftStPainted }}" onChange="{{ setDraftStPainted }}" style="position:absolute;opacity:0" />Målad</label>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px">
+          <button type="button" onClick="{{ closeDialog }}" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:Inter;font-weight:500;font-size:14px;color:#e9e9ed;background:transparent;border:1px solid rgba(233,233,237,0.16);padding:9px 16px;border-radius:8px" style-hover="background:rgba(233,233,237,0.07)">Avbryt</button>
+          <button type="button" onClick="{{ saveDraft }}" disabled="{{ saveDisabled }}" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:Inter;font-weight:500;font-size:14px;color:#9184d9;background:transparent;border:1px solid #9184d9;padding:9px 16px;border-radius:8px;opacity:{{ saveOpacity }}" style-hover="background:rgba(145,132,217,0.12)">Spara</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const ARMY_ORDER = ['Space Marines','Dark Angels','Blood Angels','Death Guard','Kill Team – Space Marines','Kill Team – Dark Angels','Kill Team – Death Guard','Stormcast Eternals'];
+const ARMY_SYSTEM = {'Space Marines':'40k','Dark Angels':'40k','Blood Angels':'40k','Death Guard':'40k','Kill Team – Space Marines':'kt','Kill Team – Dark Angels':'kt','Kill Team – Death Guard':'kt','Stormcast Eternals':'aos'};
+const STATUS_LABEL = {unbuilt:'Ej byggd', built:'Byggd', painted:'Målad'};
+const STATUS_ORDER = {unbuilt:0, built:1, painted:2};
+const ROLE_ORDER = ['Battleline','Elite','Vehicle','Character'];
+
+const SEED = [
+  {id:'sm1',name:'Intercessor Squad',army:'Space Marines',count:5,points:100,status:'painted',role:'Battleline'},
+  {id:'sm2',name:'Assault Intercessors',army:'Space Marines',count:5,points:90,status:'built',role:'Battleline'},
+  {id:'sm3',name:'Terminator Squad',army:'Space Marines',count:5,points:205,status:'unbuilt',role:'Elite'},
+  {id:'sm4',name:'Redemptor Dreadnought',army:'Space Marines',count:1,points:190,status:'painted',role:'Vehicle'},
+  {id:'da1',name:'Deathwing Terminators',army:'Dark Angels',count:5,points:220,status:'painted',role:'Elite'},
+  {id:'da2',name:'Ravenwing Black Knights',army:'Dark Angels',count:3,points:105,status:'built',role:'Vehicle'},
+  {id:'da3',name:'Interrogator-Chaplain',army:'Dark Angels',count:1,points:75,status:'unbuilt',role:'Character'},
+  {id:'ba1',name:'Death Company',army:'Blood Angels',count:10,points:130,status:'painted',role:'Elite'},
+  {id:'ba2',name:'Sanguinary Guard',army:'Blood Angels',count:5,points:165,status:'built',role:'Elite'},
+  {id:'dg1',name:'Plague Marines',army:'Death Guard',count:7,points:140,status:'painted',role:'Battleline'},
+  {id:'dg2',name:'Poxwalkers',army:'Death Guard',count:20,points:100,status:'painted',role:'Battleline'},
+  {id:'dg3',name:'Blightlord Terminators',army:'Death Guard',count:5,points:220,status:'built',role:'Elite'},
+  {id:'dg4',name:'Foetid Bloat-drone',army:'Death Guard',count:1,points:130,status:'unbuilt',role:'Vehicle'},
+  {id:'dg5',name:'Typhus',army:'Death Guard',count:1,points:110,status:'painted',role:'Character'},
+  {id:'dg6',name:'Deathshroud Terminators',army:'Death Guard',count:3,points:130,status:'built',role:'Elite'},
+  {id:'dg7',name:'Plagueburst Crawler',army:'Death Guard',count:1,points:135,status:'unbuilt',role:'Vehicle'},
+  {id:'kt1',name:'Veterankommando',army:'Kill Team – Death Guard',count:6,points:null,status:'painted',role:'Battleline'},
+  {id:'kt2',name:'Kommandosoldater',army:'Kill Team – Space Marines',count:8,points:null,status:'built',role:'Battleline'},
+  {id:'kt3',name:'Spaningspatrull',army:'Kill Team – Dark Angels',count:5,points:null,status:'unbuilt',role:'Battleline'},
+  {id:'sc1',name:'Liberators',army:'Stormcast Eternals',count:5,points:100,status:'painted',role:'Battleline'},
+  {id:'sc2',name:'Judicators',army:'Stormcast Eternals',count:5,points:160,status:'built',role:'Battleline'},
+  {id:'sc3',name:'Vindictors',army:'Stormcast Eternals',count:5,points:130,status:'unbuilt',role:'Battleline'},
+  {id:'sc4',name:'Lord-Celestant on Dracoth',army:'Stormcast Eternals',count:1,points:155,status:'unbuilt',role:'Character'},
+  {id:'sc5',name:'Praetors',army:'Stormcast Eternals',count:3,points:140,status:'painted',role:'Elite'}
+];
+
+function loadUnits() {
+  try {
+    const raw = localStorage.getItem('wh_arkiv_units_v1');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return SEED.slice();
+}
+
+class Component extends DCLogic {
+  state = {
+    units: loadUnits(),
+    search: '',
+    filterSystem: 'all',
+    filterRole: 'all',
+    view: 'grid',
+    sortKey: 'name',
+    collapsed: {},
+    dialogOpen: false,
+    editingId: null,
+    draft: { name: '', system: '40k', army: '', count: 5, points: '', status: 'unbuilt', role: 'Battleline' }
+  };
+
+  persist(units) {
+    try { localStorage.setItem('wh_arkiv_units_v1', JSON.stringify(units)); } catch (e) {}
+  }
+
+  openAdd = () => {
+    this.setState({ dialogOpen: true, editingId: null, draft: { name: '', system: '40k', army: '', count: 5, points: '', status: 'unbuilt', role: 'Battleline' } });
+  };
+  openEdit = (u) => {
+    this.setState({ dialogOpen: true, editingId: u.id, draft: { name: u.name, system: ARMY_SYSTEM[u.army] || 'custom', army: u.army, count: u.count, points: u.points == null ? '' : u.points, status: u.status, role: u.role || 'Battleline' } });
+  };
+  closeDialog = () => this.setState({ dialogOpen: false });
+  stopClick = (e) => e.stopPropagation();
+
+  onDraftName = (e) => this.setState(s => ({ draft: { ...s.draft, name: e.target.value } }));
+  onDraftArmy = (e) => this.setState(s => ({ draft: { ...s.draft, army: e.target.value } }));
+  onDraftCount = (e) => this.setState(s => ({ draft: { ...s.draft, count: e.target.value } }));
+  onDraftPoints = (e) => this.setState(s => ({ draft: { ...s.draft, points: e.target.value } }));
+  onDraftRole = (e) => this.setState(s => ({ draft: { ...s.draft, role: e.target.value } }));
+  setDraftSys40k = () => this.setState(s => ({ draft: { ...s.draft, system: '40k' } }));
+  setDraftSysAos = () => this.setState(s => ({ draft: { ...s.draft, system: 'aos' } }));
+  setDraftSysKt = () => this.setState(s => ({ draft: { ...s.draft, system: 'kt' } }));
+  setDraftStUnbuilt = () => this.setState(s => ({ draft: { ...s.draft, status: 'unbuilt' } }));
+  setDraftStBuilt = () => this.setState(s => ({ draft: { ...s.draft, status: 'built' } }));
+  setDraftStPainted = () => this.setState(s => ({ draft: { ...s.draft, status: 'painted' } }));
+
+  saveDraft = () => {
+    const d = this.state.draft;
+    if (!d.name.trim() || !d.army.trim()) return;
+    const unit = {
+      id: this.state.editingId || ('u' + Date.now()),
+      name: d.name.trim(),
+      army: d.army.trim(),
+      count: Number(d.count) || 1,
+      points: d.points === '' ? null : Number(d.points),
+      status: d.status,
+      role: d.role
+    };
+    let units;
+    if (this.state.editingId) {
+      units = this.state.units.map(u => u.id === unit.id ? unit : u);
+    } else {
+      units = [...this.state.units, unit];
+    }
+    this.persist(units);
+    this.setState({ units, dialogOpen: false });
+  };
+
+  deleteUnit = (u) => {
+    if (!window.confirm('Ta bort "' + u.name + '"?')) return;
+    const units = this.state.units.filter(x => x.id !== u.id);
+    this.persist(units);
+    this.setState({ units });
+  };
+
+  onSearchChange = (e) => this.setState({ search: e.target.value });
+  setFilterAll = () => this.setState({ filterSystem: 'all' });
+  setFilter40k = () => this.setState({ filterSystem: '40k' });
+  setFilterAos = () => this.setState({ filterSystem: 'aos' });
+  setFilterKt = () => this.setState({ filterSystem: 'kt' });
+  onFilterRoleChange = (e) => this.setState({ filterRole: e.target.value });
+  setViewGrid = () => this.setState({ view: 'grid' });
+  setViewList = () => this.setState({ view: 'list' });
+  onSortChange = (e) => this.setState({ sortKey: e.target.value });
+
+  toggleGroup = (army) => {
+    this.setState(s => ({ collapsed: { ...s.collapsed, [army]: !s.collapsed[army] } }));
+  };
+
+  statusStyle(status) {
+    if (status === 'painted') return { bg: '#423a6a', fg: '#f5f4ff', border: 'none', anim: 'pulseGlow 2.6s ease-in-out infinite' };
+    if (status === 'built') return { bg: 'transparent', fg: '#9184d9', border: '1px solid #9184d9', anim: 'none' };
+    return { bg: '#3f424d', fg: '#f3f5fe', border: 'none', anim: 'none' };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const search = s.search.trim().toLowerCase();
+
+    let units = s.units.filter(u => {
+      if (search && !u.name.toLowerCase().includes(search)) return false;
+      const sys = ARMY_SYSTEM[u.army] || 'custom';
+      if (s.filterSystem !== 'all' && sys !== s.filterSystem) return false;
+      if (s.filterRole !== 'all' && u.role !== s.filterRole) return false;
+      return true;
+    });
+
+    const armiesPresent = Array.from(new Set(s.units.map(u => u.army)));
+    const orderedArmies = ARMY_ORDER.filter(a => armiesPresent.includes(a))
+      .concat(armiesPresent.filter(a => !ARMY_ORDER.includes(a)));
+
+    const sortFn = (a, b) => {
+      if (s.sortKey === 'points') return (b.points || 0) - (a.points || 0);
+      if (s.sortKey === 'count') return b.count - a.count;
+      if (s.sortKey === 'status') return STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      return a.name.localeCompare(b.name);
+    };
+
+    let visibleCount = 0;
+    const groups = orderedArmies.map(army => {
+      const sys = ARMY_SYSTEM[army] || 'custom';
+      if (s.filterSystem !== 'all' && sys !== s.filterSystem) return null;
+      const groupUnits = units.filter(u => u.army === army).sort(sortFn);
+      visibleCount += groupUnits.length;
+      const models = groupUnits.reduce((sum, u) => sum + u.count, 0);
+      const points = groupUnits.reduce((sum, u) => sum + (u.points || 0), 0);
+      const expanded = !s.collapsed[army];
+      return {
+        name: army,
+        systemLabel: sys === 'aos' ? 'AoS' : (sys === 'kt' ? 'Kill Team' : '40k'),
+        count: groupUnits.length,
+        models,
+        points,
+        expanded,
+        chevronRotate: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+        toggleFn: () => this.toggleGroup(army),
+        isEmpty: groupUnits.length === 0,
+        units: groupUnits.map((u, i) => {
+          const st = this.statusStyle(u.status);
+          return {
+            id: u.id,
+            name: u.name,
+            army: u.army,
+            role: u.role || 'Övrigt',
+            count: u.count,
+            pointsLabel: u.points == null ? '–' : (u.points + ' p'),
+            statusLabel: STATUS_LABEL[u.status],
+            statusBg: st.bg,
+            statusFg: st.fg,
+            statusBorder: st.border,
+            statusAnim: st.anim,
+            animDelay: (i * 40) + 'ms',
+            editFn: () => this.openEdit(u),
+            deleteFn: () => this.deleteUnit(u)
+          };
+        })
+      };
+    }).filter(Boolean);
+
+    const totalUnits = s.units.length;
+    const totalModels = s.units.reduce((sum, u) => sum + u.count, 0);
+    const totalPoints = s.units.reduce((sum, u) => sum + (u.points || 0), 0);
+    const paintedCount = s.units.filter(u => u.status === 'painted').length;
+    const paintedPct = totalUnits ? Math.round((paintedCount / totalUnits) * 100) : 0;
+
+    const armyNames = ARMY_ORDER.concat(armiesPresent.filter(a => !ARMY_ORDER.includes(a)));
+
+    const segColors = (active) => active
+      ? { color: '#9184d9', shadow: 'inset 0 0 0 1px #9184d9' }
+      : { color: '#e9e9ed', shadow: 'none' };
+
+    const filterAllC = segColors(s.filterSystem === 'all');
+    const filter40kC = segColors(s.filterSystem === '40k');
+    const filterKtC = segColors(s.filterSystem === 'kt');
+    const filterAosC = segColors(s.filterSystem === 'aos');
+    const viewGridC = segColors(s.view === 'grid');
+    const viewListC = segColors(s.view === 'list');
+    const draftSys40kC = segColors(s.draft.system === '40k');
+    const draftSysKtC = segColors(s.draft.system === 'kt');
+    const draftSysAosC = segColors(s.draft.system === 'aos');
+    const draftStU = segColors(s.draft.status === 'unbuilt');
+    const draftStB = segColors(s.draft.status === 'built');
+    const draftStP = segColors(s.draft.status === 'painted');
+
+    const canSave = s.draft.name.trim().length > 0 && s.draft.army.trim().length > 0;
+
+    return {
+      search: s.search,
+      onSearchChange: this.onSearchChange,
+      filterAll: s.filterSystem === 'all', filter40k: s.filterSystem === '40k', filterKt: s.filterSystem === 'kt', filterAos: s.filterSystem === 'aos',
+      setFilterAll: this.setFilterAll, setFilter40k: this.setFilter40k, setFilterKt: this.setFilterKt, setFilterAos: this.setFilterAos,
+      filterAllColor: filterAllC.color, filterAllShadow: filterAllC.shadow,
+      filter40kColor: filter40kC.color, filter40kShadow: filter40kC.shadow,
+      filterKtColor: filterKtC.color, filterKtShadow: filterKtC.shadow,
+      filterAosColor: filterAosC.color, filterAosShadow: filterAosC.shadow,
+      filterRole: s.filterRole, onFilterRoleChange: this.onFilterRoleChange,
+      roleOptions: ROLE_ORDER,
+      openAdd: this.openAdd,
+
+      stats: {
+        totalUnits, totalModels, totalPoints, paintedPct,
+        paintedPctStyle: paintedPct + '%',
+        visibleLabel: visibleCount + ' av ' + totalUnits + ' enheter visas'
+      },
+
+      viewGrid: s.view === 'grid', viewList: s.view === 'list',
+      setViewGrid: this.setViewGrid, setViewList: this.setViewList,
+      viewGridColor: viewGridC.color, viewGridShadow: viewGridC.shadow,
+      viewListColor: viewListC.color, viewListShadow: viewListC.shadow,
+      sortKey: s.sortKey, onSortChange: this.onSortChange,
+
+      groups,
+      noGroups: groups.length === 0,
+
+      dialogOpen: s.dialogOpen,
+      dialogTitle: s.editingId ? 'Redigera enhet' : 'Ny enhet',
+      closeDialog: this.closeDialog,
+      stopClick: this.stopClick,
+      draft: { name: s.draft.name, army: s.draft.army, count: s.draft.count, points: s.draft.points, role: s.draft.role },
+      onDraftName: this.onDraftName, onDraftArmy: this.onDraftArmy, onDraftCount: this.onDraftCount, onDraftPoints: this.onDraftPoints, onDraftRole: this.onDraftRole,
+      roleOptionsForm: ROLE_ORDER,
+      armyNames,
+      draftSys40k: s.draft.system === '40k', draftSysKt: s.draft.system === 'kt', draftSysAos: s.draft.system === 'aos',
+      setDraftSys40k: this.setDraftSys40k, setDraftSysKt: this.setDraftSysKt, setDraftSysAos: this.setDraftSysAos,
+      draftSys40kColor: draftSys40kC.color, draftSys40kShadow: draftSys40kC.shadow,
+      draftSysKtColor: draftSysKtC.color, draftSysKtShadow: draftSysKtC.shadow,
+      draftSysAosColor: draftSysAosC.color, draftSysAosShadow: draftSysAosC.shadow,
+      draftStUnbuilt: s.draft.status === 'unbuilt', draftStBuilt: s.draft.status === 'built', draftStPainted: s.draft.status === 'painted',
+      setDraftStUnbuilt: this.setDraftStUnbuilt, setDraftStBuilt: this.setDraftStBuilt, setDraftStPainted: this.setDraftStPainted,
+      draftStUnbuiltColor: draftStU.color, draftStUnbuiltShadow: draftStU.shadow,
+      draftStBuiltColor: draftStB.color, draftStBuiltShadow: draftStB.shadow,
+      draftStPaintedColor: draftStP.color, draftStPaintedShadow: draftStP.shadow,
+      saveDraft: this.saveDraft,
+      saveDisabled: !canSave,
+      saveOpacity: canSave ? 1 : 0.45
+    };
+  }
+}
+
+</script>
+</body>
+</html>
