@@ -1,6 +1,6 @@
 # TODO – WarAsset
 
-## Fas 1 (grunddatabas + BSData-synk + API) — klar
+## Fas 1 (grunddatabas + BSData-synk + API + deploy) — HELT klar
 
 Se CLAUDE.md för fullständig dokumentation av schema, synklogik och API.
 
@@ -69,11 +69,23 @@ UI baserat på `Miniatyrarkiv.dc.html` + Nocturne-designsystemet. Se
 `localStorage`-seed med sökning mot `/api/entries/search` och CRUD mot
 `/api/units`, samt lösa spelsystem-nyckelskillnaden `'kt'` vs `'kill_team'`).
 
-## Deploy
+## Deploy — KLART (Fas 1b, 2026-08-25)
 
-- [ ] Sivan skapar GitHub-repot `warasset` manuellt (INTE via Claude Code,
-  se kickoff-dokumentet).
-- [ ] Första `git push` av det här repot.
-- [ ] Första deploy till Unraid (`ssh unraid "cd /mnt/user/appdata/warasset/app
-  && git pull && docker compose -p warasset up -d --build"`), verifiera med
-  `curl http://192.168.1.142:5001/`.
+- [x] GitHub-repo `warasset` (Sivan87/WarAsset) kopplat och pushat. Remoten
+  är HTTPS, inte SSH (ingen SSH-nyckel mot GitHub konfigurerad på den här
+  maskinen eller på servern — se CLAUDE.md, "GitHub").
+- [x] Klonat till `/mnt/user/appdata/warasset/app` på Unraid, `.env` skapad
+  manuellt på servern, `docker compose -p warasset up -d --build` byggd
+  och startad (`warasset-warasset-1`, port 5001).
+- [x] Verifierad nåbar både `localhost:5001` på servern och
+  `192.168.1.142:5001` över nätverket.
+- [x] BSData-synk kör på servern (40k/Kill Team/AoS, radantal i samma
+  storleksordning som den lokala Fas 1-verifieringen — se CLAUDE.md för
+  exakta siffror och varför de inte är identiska).
+- [x] `collection_units`-data verifierad att överleva `docker restart`.
+- [ ] Full omstart av själva Unraid-datorn INTE testad (skulle störa annan
+  drift, bl.a. BrickRadar på samma server) — `restart: unless-stopped` bör
+  räcka men är inte specifikt verifierat för WarAsset.
+
+**Fas 1 (backend + BSData-synk + API + deploy) är nu helt klar.** Nästa
+steg är Fas 2 (UI), se ovan.

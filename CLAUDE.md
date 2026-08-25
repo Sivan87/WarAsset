@@ -5,9 +5,10 @@ Sigmar). Python/Flask + SQLite, en enda Docker-container, driftsatt på
 Unraid, öppet på det interna hemnätverket utan inloggning — samma mönster
 som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
-**Status: Fas 1 (grunddatabas + BSData-synk + API) är klar. Fas 2 (UI, se
-"Fas 2" nedan) är INTE påbörjad.** Kickoff-dokumentet för Fas 1 ligger kvar
-i repot som `fas1-warasset-grunddata-bsdata.md`.
+**Status: Fas 1 (grunddatabas + BSData-synk + API) ÄR KLAR OCH DRIFTSATT på
+Unraid. Fas 2 (UI, se "Fas 2" nedan) är INTE påbörjad.** Kickoff-dokumenten
+ligger kvar i repot: `fas1-warasset-grunddata-bsdata.md` (backend) och
+`fas1b-warasset-deploy.md` (GitHub-koppling + deploy).
 
 ## Produktbeslut
 
@@ -200,20 +201,81 @@ aldrig HTML-felsidor.
 | POST | `/api/units/<id>/photo` | Ladda upp foto (multipart, fält `photo`) |
 | GET | `/api/units/<id>/photo` | Hämta foto |
 
-## Unraid-drift
+## GitHub
 
-- Port **5001** (inte 5000, som BrickRadar använder på samma server).
-- Volym `warasset_data` → `/app/data` (databas, klonade BSData-repon,
-  uppladdade foton — allt under `data/`, gitignorat).
-- Deploy-flöde (samma som BrickRadar):
-  ```
-  git add -A && git commit -m "..." && git push
-  ssh unraid "cd /mnt/user/appdata/warasset/app && git pull && docker compose -p warasset up -d --build"
-  curl http://192.168.1.142:5001/
-  ```
-  Använd alltid `-p warasset` explicit vid compose-anrop på servern.
-- `Dockerfile` installerar `git` (`apt-get install -y git`) eftersom
-  `bsdata_sync.py` klonar BSData-repon vid körning.
+Repo: `github.com/Sivan87/WarAsset` (kopplat och pushat, se
+`fas1b-warasset-deploy.md`). Remoten är satt till HTTPS
+(`https://github.com/Sivan87/WarAsset.git`), inte SSH — den här maskinen
+saknar en SSH-nyckel registrerad hos GitHub (`ssh -T git@github.com` gav
+"Permission denied (publickey)"), medan `gh`s inloggade token + Git
+Credential Manager fungerar direkt över HTTPS utan extra steg. Byt inte
+till SSH-remoten utan att först lösa nyckelfrågan.
+
+## Unraid-server
+
+- **SSH-alias:** `unraid` (samma som BrickRadar använder, redan
+  konfigurerat i SSH-config — pekar mot `192.168.1.142`). Använd ALLTID
+  `ssh unraid ...`, aldrig rå IP eller Tailscale/MagicDNS-hostnamnet (går
+  inte att slå upp från utvecklingsmiljön).
+- **App-sökväg på servern:** `/mnt/user/appdata/warasset/app` (git-klon av
+  GitHub-repot, klonad över HTTPS eftersom servern — precis som
+  utvecklingsmaskinen — inte har en SSH-nyckel mot GitHub).
+- **Compose-projektnamn:** `warasset` (alltid `-p warasset` explicit vid
+  `docker compose`-anrop, annars kan Compose falla tillbaka på mappnamnet
+  och skapa en dubblettcontainer/portkonflikt).
+- **Containernamn:** `warasset-warasset-1`. **Port:** 5001 (inte 5000, som
+  BrickRadar använder på samma server).
+- **Volym:** `warasset_warasset_data` → `/app/data` (databas, klonade
+  BSData-repon, uppladdade foton — allt gitignorat, allt bara på servern).
+- **`.env` på servern:** skapad manuellt via `ssh unraid "cat > .../app/.env" <<'EOF' ... EOF`
+  (samma innehåll som lokala `.env` — inga hemliga produktionsvärden ännu).
+  Detta är den enda filen som INTE följer med `git pull`, eftersom den av
+  design inte ligger i git — kom ihåg att uppdatera den manuellt på servern
+  om nya nycklar/inställningar läggs till lokalt i framtiden.
+- **`git`** är installerat i imagen (`apt-get install -y git` i
+  `Dockerfile`) eftersom `bsdata_sync.py` klonar BSData-repon vid körning.
+
+### Deploy-flöde (vid framtida kodändringar)
+
+```
+git add -A && git commit -m "..." && git push
+ssh unraid "cd /mnt/user/appdata/warasset/app && git pull && docker compose -p warasset up -d --build"
+curl http://192.168.1.142:5001/
+```
+
+### Verifierat vid första driftsättningen (2026-08-25)
+
+- `docker compose -p warasset up -d --build` byggde och startade rent
+  (image `python:3.14-slim`, `git` installerat, `pip install` av Flask/
+  python-dotenv, container `warasset-warasset-1` "Up").
+- Nås både lokalt på servern (`ssh unraid curl localhost:5001/` → 200) och
+  över nätverket (`curl http://192.168.1.142:5001/` från
+  utvecklingsmaskinen → 200).
+- **OBS, känd Docker/Python-fälla:** `docker logs` visade INTE
+  synk-loggraderna (`git clone`/`git pull`/`N kataloger, M entries`) förrän
+  processen skrivit tillräckligt mycket annat till stdout — Pythons stdout
+  är blockbuffrat (inte radbuffrat) när det inte är kopplat till en TTY,
+  vilket Docker-containerns stdout inte är. Loggarna dyker upp med
+  fördröjning, inte i realtid. Verifiera synkstatus istället direkt mot
+  `GET /api/game-systems` (`last_synced_at`) eller `GET /api/entries/search`
+  — inte genom att vänta på `docker logs`. (Skulle kunna fixas med
+  `PYTHONUNBUFFERED=1` som miljövariabel i Dockerfilen/compose om
+  realtidsloggar blir viktigt senare — inte gjort än.)
+- Första BSData-synken på servern gav (via `git pull`, alltså inte första
+  klon — se moduldocstring i `bsdata_sync.py`): 40k 36 kataloger/6059
+  entries, Kill Team 111/934, AoS 97/3168 — samma storleksordning som den
+  lokala verifieringen i Fas 1 (40k 6671, KT 1028, AoS 3602). Skillnaden
+  beror på att BSData-repona är levande och fått egna commits mellan de två
+  körningarna, inte på ett fel i synken — kontrollerat genom att jämföra
+  radantal, inte genom att kräva exakt likhet.
+- `collection_units`-data överlever en `docker restart warasset-warasset-1`
+  (testat med en tillfällig testenhet, borttagen efteråt): containern kom
+  upp igen på några sekunder, raden fanns kvar oförändrad, volymen
+  `warasset_warasset_data` fungerar som avsett.
+- En full omstart av själva Unraid-datorn har INTE testats (skulle störa
+  annan drift på servern, bl.a. BrickRadar) — `restart: unless-stopped` i
+  `docker-compose.yml` bör ge samma beteende som BrickRadar redan har där,
+  men är inte verifierat specifikt för WarAsset.
 
 ## Fas 2 (INTE påbörjad)
 
