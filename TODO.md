@@ -113,7 +113,9 @@ vad som täcktes.
   räcka men är inte specifikt verifierat för WarAsset.
 
 **Fas 1 (backend + BSData-synk + API + deploy) och Fas 2 (UI) är nu båda
-klara i kod.** Fas 2:s UI-kod är ännu inte deployad till Unraid vid det här
-skrivandet — se kickoff-dokumentets deploy-steg i fas2-warasset-ui.md,
-samma flöde som Fas 1b (`git push` → `ssh unraid ... git pull && docker
-compose -p warasset up -d --build`).
+klara OCH driftsatta på Unraid** (2026-08-26, samma deploy-flöde som
+Fas 1b). Verifierat live: `http://192.168.1.142:5001/` svarar 200 med
+titeln "WarAsset", alla tre statiska filer (`static/css/nocturne.css`,
+`static/css/app.css`, `static/js/app.js`) serveras korrekt, containern
+`warasset-warasset-1` kör. WarAsset är alltså komplett end-to-end: BSData-
+synk, sök-API, CRUD-API och nu ett riktigt UI, allt live.
