@@ -44,7 +44,9 @@ Se CLAUDE.md för fullständig dokumentation av schema, synklogik och API.
   kataloger refererar till den). Se CLAUDE.md, avsnittet om databasschemat.
 - **Kill Team, kosmetiskt dataskräp:** ett fåtal "Fire Team"-poster har
   `role="New CategoryLink"` och 0 poäng (bokstavligen vad källfilen säger,
-  se CLAUDE.md). Skulle kunna filtreras bort i Fas 2:s UI om det stör.
+  se CLAUDE.md). INTE filtrerat bort i Fas 2:s UI (skulle synas i sök-
+  dropdownen om man sökte efter en sådan post) — värt att städa upp i
+  `bsdata_sync.py` om det visar sig störa i praktiken.
 
 ### Verifierat under utvecklingen (riktig data, inte antaganden)
 
@@ -62,14 +64,37 @@ Se CLAUDE.md för fullständig dokumentation av schema, synklogik och API.
   6671 entries/36 kataloger, Kill Team 1028/111, AoS 3602/97 — se
   CLAUDE.md för detaljer.
 
-## Fas 2 — INTE påbörjad
+## Fas 2 (UI) — KLAR (2026-08-26)
 
-UI baserat på `Miniatyrarkiv.dc.html` + Nocturne-designsystemet. Se
-"Fas 2"-avsnittet i CLAUDE.md för vad som behöver göras (ersätta
-`localStorage`-seed med sökning mot `/api/entries/search` och CRUD mot
-`/api/units`, samt lösa spelsystem-nyckelskillnaden `'kt'` vs `'kill_team'`).
+Se CLAUDE.md, avsnittet "Fas 2 — UI (KLAR)", för filstruktur, sök-först-
+flödet, `kt`→`kill_team`-fixen, sync-knappen och alla medvetna avvikelser
+från mockupen. Verifierat med ett tillfälligt Playwright-uppsättning i
+scratchpad (ingen befintlig run-skill för repot, `chromium-cli` inte
+tillgängligt i den här Windows-miljön) — se samma CLAUDE.md-avsnitt för
+vad som täcktes.
 
-## Deploy — KLART (Fas 1b, 2026-08-25)
+### Öppna punkter / kända begränsningar (Fas 2)
+
+- **Ingen run-skill genererad** för WarAsset trots att UI-verifieringen
+  krävde ett improviserat Playwright-uppsättning — värt att köra
+  `/run-skill-generator` om UI:t byggs ut vidare, så nästa Claude Code-
+  session slipper återupptäcka samma sak (npm install playwright, install
+  chromium, starta `python app.py`, etc).
+- **Fotouppladdning bara vid redigering**, inte vid "Ny enhet" (se
+  CLAUDE.md — API:t kräver ett existerande unit-`id`). Skulle kunna lösas
+  genom att spara enheten tyst först och sedan öppna om den i redigerings-
+  läge, men bedömdes som onödig komplexitet för en engångs-limitation.
+- **Filinputen för foto är webbläsarens standardutseende**, inte Nocturne-
+  styled (svårt att omstyla `<input type=file>` utan extra JS/knapp-hack).
+- **Anpassade enheter saknar helt fraktion/roll** (schemabegränsning, se
+  CLAUDE.md) — om Sivan vill kunna filtrera/gruppera anpassade enheter per
+  egen fraktion i framtiden krävs en schemaändring i `collection_units`
+  (nytt fält, t.ex. `custom_faction`), utanför Fas 1/Fas 2:s scope.
+- **`[hidden]`/CSS-specificitetsbugg** hittad och fixad under testningen
+  (se CLAUDE.md, `app.css`) — värt att komma ihåg om fler `hidden`-styrda
+  element läggs till senare med en klass som sätter `display`.
+
+## Deploy — KLART (Fas 1b, 2026-08-25 — Fas 2:s UI ännu inte deployad, se nedan)
 
 - [x] GitHub-repo `warasset` (Sivan87/WarAsset) kopplat och pushat. Remoten
   är HTTPS, inte SSH (ingen SSH-nyckel mot GitHub konfigurerad på den här
@@ -87,5 +112,8 @@ UI baserat på `Miniatyrarkiv.dc.html` + Nocturne-designsystemet. Se
   drift, bl.a. BrickRadar på samma server) — `restart: unless-stopped` bör
   räcka men är inte specifikt verifierat för WarAsset.
 
-**Fas 1 (backend + BSData-synk + API + deploy) är nu helt klar.** Nästa
-steg är Fas 2 (UI), se ovan.
+**Fas 1 (backend + BSData-synk + API + deploy) och Fas 2 (UI) är nu båda
+klara i kod.** Fas 2:s UI-kod är ännu inte deployad till Unraid vid det här
+skrivandet — se kickoff-dokumentets deploy-steg i fas2-warasset-ui.md,
+samma flöde som Fas 1b (`git push` → `ssh unraid ... git pull && docker
+compose -p warasset up -d --build`).

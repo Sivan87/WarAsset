@@ -25,12 +25,11 @@ SYNC_INTERVAL_SECONDS = int(os.environ.get("SYNC_INTERVAL_SECONDS", str(24 * 60 
 
 @app.route("/")
 def index():
-    """Fas 2 (UI baserat på Miniatyrarkiv.dc.html/Nocturne-designsystemet,
-    se C:\\WarAsset) är inte påbörjad än — den här routen är en enkel
-    platshållare tills dess. JSON-API:et under /api fungerar redan fullt ut,
-    se CLAUDE.md för endpoint-lista."""
-    game_systems = db.list_game_systems()
-    return render_template("index.html", game_systems=game_systems)
+    """Huvudvyn (Fas 2). Server-renderar bara den statiska sidskalet
+    (nav/toolbar/dialog-markup) — enhetslistan hämtas och all interaktivitet
+    (sök/filter/sortering/CRUD) sköts av static/js/app.js mot /api/units och
+    /api/entries/search, se CLAUDE.md."""
+    return render_template("index.html")
 
 
 def _initial_sync_loop():

@@ -1,0 +1,123 @@
+/* WarAsset — appspecifika stilar ovanpå Nocturne (nocturne.css). Allt här
+   använder Nocturne-tokens (var(--color-*)/var(--space-*)/var(--radius-*))
+   istället för hårdkodade värden, se readme.md i _ds/-mappen. */
+
+body { padding-bottom: var(--space-8); }
+
+/* nocturne.css sets .dialog-backdrop{display:grid}, which (being an author
+   rule) beats the browser's default [hidden]{display:none} UA style at
+   equal specificity — without this, a hidden dialog still occupies the
+   full viewport and swallows every click on the page behind it. */
+[hidden] { display: none !important; }
+
+.container { max-width: 1160px; margin: 0 auto; padding-inline: var(--space-6); }
+
+/* — nav — */
+.nav-search { position: relative; width: 240px; }
+.nav-logo { display: flex; align-items: center; gap: var(--space-3); margin-right: auto; }
+.nav-logo-mark { flex: none; }
+.nav-logo-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; line-height: 1.1; letter-spacing: -0.01em; }
+.nav-logo-sub { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+
+.sync-status { font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); white-space: nowrap; }
+.sync-status.is-error { color: var(--color-neutral-300); }
+
+/* — stat band — */
+.stat-band { background: linear-gradient(135deg, var(--color-section), var(--color-section-glow) 130%); }
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-8); padding-block: var(--space-6); }
+.stat-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent-2-300); }
+.stat-value { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 34px; line-height: 1.15; }
+.stat-bar { height: 5px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.15); margin-top: var(--space-3); overflow: hidden; }
+.stat-bar-fill { height: 100%; border-radius: var(--radius-sm); background: var(--color-accent); transition: width 0.6s ease; }
+
+/* — toolbar — */
+.toolbar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0 var(--space-1); flex-wrap: wrap; }
+.toolbar-select { min-height: 36px; }
+.toolbar-hint { margin-left: auto; font-size: 12px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+
+/* — groups — */
+.group-header {
+  display: flex; align-items: center; gap: var(--space-3); cursor: pointer;
+  padding: var(--space-3) 0; border-bottom: 1px solid var(--color-divider);
+  background: none; border-left: none; border-right: none; border-top: none;
+  width: 100%; text-align: left; color: inherit; font: inherit;
+}
+.group-chevron { display: inline-block; font-size: 11px; color: color-mix(in srgb, var(--color-text) 50%, transparent); transition: transform 0.2s ease; }
+.group-chevron.is-expanded { transform: rotate(90deg); }
+.group-title { margin: 0; font-size: 18px; }
+.group-meta { font-size: 12px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+
+/* — grid view — */
+.unit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-6); padding: var(--space-6) 0 var(--space-2); }
+.unit-card {
+  display: flex; flex-direction: column; padding: 0; overflow: hidden;
+  animation: fadeUp 0.4s ease both;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.unit-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+.unit-photo {
+  height: 120px; display: flex; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(135deg, var(--color-neutral-900), var(--color-neutral-900) 10px, var(--color-bg) 10px, var(--color-bg) 20px);
+}
+.unit-photo img { width: 100%; height: 100%; object-fit: cover; }
+.unit-photo-label { font-family: ui-monospace, Menlo, monospace; font-size: 10px; letter-spacing: 0.06em; color: color-mix(in srgb, var(--color-text) 35%, transparent); }
+.unit-card-body { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+.unit-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.unit-card-name { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 16px; line-height: 1.25; }
+.unit-card-meta { display: flex; align-items: center; gap: var(--space-3); font-size: 12px; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+.unit-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
+.unit-card-actions { display: flex; gap: var(--space-2); }
+
+/* — status tag — */
+.status-tag.tag-accent { animation: pulseGlow 2.6s ease-in-out infinite; }
+
+/* — list view — */
+.unit-table-wrap { background: var(--color-bg); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; margin: var(--space-3) 0 var(--space-2); }
+.unit-table td { vertical-align: middle; }
+.unit-table td.num { text-align: right; }
+.unit-table td.center { text-align: center; }
+.unit-table td.actions { text-align: right; white-space: nowrap; }
+.unit-table .name-sub { font-size: 11px; color: color-mix(in srgb, var(--color-text) 40%, transparent); }
+
+.empty-state { padding: 64px var(--space-6); text-align: center; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+.group-empty { font-size: 13px; color: color-mix(in srgb, var(--color-text) 40%, transparent); padding: var(--space-4) 0; }
+
+/* — dialog — */
+.dialog-mode-toggle { font-size: 12px; text-align: center; }
+.dialog-mode-toggle a { cursor: pointer; }
+.combobox { position: relative; }
+.combobox-results {
+  position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 220px; overflow-y: auto;
+  background: var(--color-surface); border-radius: var(--radius-md); box-shadow: var(--shadow-md);
+}
+.combobox-result {
+  display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3);
+  cursor: pointer; font-size: 13px;
+}
+.combobox-result:hover, .combobox-result.is-active { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.combobox-result-name { color: var(--color-text); }
+.combobox-result-meta { font-size: 11px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+.combobox-empty { padding: var(--space-3); font-size: 13px; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.selected-entry {
+  display: flex; flex-direction: column; gap: 4px; padding: var(--space-3);
+  border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+.selected-entry-name { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 14px; }
+.selected-entry-meta { font-size: 12px; color: color-mix(in srgb, var(--color-text) 65%, transparent); }
+.readonly-value { min-height: 36px; display: flex; align-items: center; padding: 6px 10px; font-size: 14px; color: color-mix(in srgb, var(--color-text) 70%, transparent); background: color-mix(in srgb, var(--color-text) 5%, transparent); border-radius: var(--radius-md); }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.photo-row { display: flex; align-items: center; gap: var(--space-3); }
+.photo-row .unit-photo { width: 72px; height: 56px; flex: none; border-radius: var(--radius-sm); }
+.field-hint { font-size: 11px; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent); } 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 22%, transparent); } }
+@keyframes dialogIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+.dialog { animation: dialogIn 0.2s ease both; }
+
+@media (max-width: 640px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .field-row { grid-template-columns: 1fr; }
+}

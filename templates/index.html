@@ -4,38 +4,103 @@
   <meta charset="utf-8">
   <title>WarAsset</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { margin: 0; background: #161826; color: #e9e9ed; font-family: -apple-system, Segoe UI, Inter, system-ui, sans-serif; padding: 40px; }
-    h1 { margin: 0 0 6px; }
-    p.sub { color: rgba(233,233,237,0.6); margin: 0 0 28px; }
-    table { border-collapse: collapse; width: 100%; max-width: 640px; }
-    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(233,233,237,0.12); }
-    th { color: rgba(233,233,237,0.5); font-weight: 500; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
-    code { background: rgba(233,233,237,0.08); padding: 2px 6px; border-radius: 4px; }
-  </style>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,4 26.4,10 26.4,22 16,28 5.6,22 5.6,10' fill='none' stroke='%239184d9' stroke-width='2'/%3E%3Crect x='13' y='13' width='6' height='6' fill='%239184d9' transform='rotate(45 16 16)'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/nocturne.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
-  <h1>WarAsset</h1>
-  <p class="sub">Backend (Fas 1) är klar. UI (Fas 2, baserat på Miniatyrarkiv.dc.html) är inte påbörjad än — se CLAUDE.md.</p>
 
-  <table>
-    <thead>
-      <tr><th>Spelsystem</th><th>BSData-repo</th><th>Senast synkad</th></tr>
-    </thead>
-    <tbody>
-      {% for gs in game_systems %}
-      <tr>
-        <td>{{ gs.name }} (<code>{{ gs.key }}</code>)</td>
-        <td><code>{{ gs.bsdata_repo }}</code></td>
-        <td>{{ gs.last_synced_at or "aldrig (synkar just nu i bakgrunden)" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <nav class="nav container">
+    <div class="nav-logo">
+      <svg class="nav-logo-mark" width="30" height="30" viewBox="0 0 32 32" fill="none">
+        <polygon points="16,4 26.4,10 26.4,22 16,28 5.6,22 5.6,10" stroke="var(--color-accent)" stroke-width="1.5"/>
+        <line x1="16" y1="0" x2="16" y2="5" stroke="var(--color-accent)" stroke-width="1.5"/>
+        <line x1="16" y1="27" x2="16" y2="32" stroke="var(--color-accent)" stroke-width="1.5"/>
+        <line x1="0" y1="16" x2="5" y2="16" stroke="var(--color-accent)" stroke-width="1.5"/>
+        <line x1="27" y1="16" x2="32" y2="16" stroke="var(--color-accent)" stroke-width="1.5"/>
+        <rect x="13.5" y="13.5" width="5" height="5" fill="var(--color-accent)" transform="rotate(45 16 16)"/>
+      </svg>
+      <div>
+        <div class="nav-logo-title">WarAsset</div>
+        <div class="nav-logo-sub">Miniatyrregister</div>
+      </div>
+    </div>
 
-  <p class="sub" style="margin-top:28px">
-    JSON-API: <code>/api/entries/search?system=40k&amp;q=plague</code>,
-    <code>/api/units</code>, <code>POST /api/sync</code>. Se CLAUDE.md för hela listan.
-  </p>
+    <div class="nav-search field">
+      <input id="search-input" class="input" type="text" placeholder="Sök enhet…" autocomplete="off">
+    </div>
+
+    <div class="seg" id="system-filter-seg">
+      <label class="seg-opt"><input type="radio" name="sysfilter" value="all" checked> Alla</label>
+      <label class="seg-opt"><input type="radio" name="sysfilter" value="40k"> 40k</label>
+      <label class="seg-opt"><input type="radio" name="sysfilter" value="kill_team"> Kill Team</label>
+      <label class="seg-opt"><input type="radio" name="sysfilter" value="aos"> AoS</label>
+    </div>
+
+    <span id="sync-status" class="sync-status"></span>
+    <button id="sync-btn" type="button" class="btn btn-ghost">Synka BSData</button>
+    <button id="add-btn" type="button" class="btn btn-primary">+ Ny enhet</button>
+  </nav>
+
+  <div class="stat-band">
+    <div class="container stat-grid">
+      <div>
+        <div class="stat-label">Enheter</div>
+        <div class="stat-value" id="stat-total-units">0</div>
+      </div>
+      <div>
+        <div class="stat-label">Modeller</div>
+        <div class="stat-value" id="stat-total-models">0</div>
+      </div>
+      <div>
+        <div class="stat-label">Poäng totalt</div>
+        <div class="stat-value" id="stat-total-points">0</div>
+      </div>
+      <div>
+        <div class="stat-label">Målade</div>
+        <div class="stat-value"><span id="stat-painted-pct">0</span>%</div>
+        <div class="stat-bar"><div class="stat-bar-fill" id="stat-bar-fill" style="width:0%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container toolbar">
+    <div class="seg" id="view-seg">
+      <label class="seg-opt"><input type="radio" name="viewmode" value="grid" checked> Galleri</label>
+      <label class="seg-opt"><input type="radio" name="viewmode" value="list"> Lista</label>
+    </div>
+    <select id="sort-select" class="input toolbar-select">
+      <option value="name">Sortera: Namn</option>
+      <option value="points">Sortera: Poäng</option>
+      <option value="count">Sortera: Antal</option>
+      <option value="status">Sortera: Status</option>
+    </select>
+    <select id="role-select" class="input toolbar-select">
+      <option value="all">Typ: Alla</option>
+    </select>
+    <div class="toolbar-hint" id="visible-hint"></div>
+  </div>
+
+  <div class="container" id="groups-container"></div>
+
+  <div class="empty-state" id="empty-state" hidden>
+    <p>Inga enheter matchar din sökning.</p>
+  </div>
+
+  <!-- Add/Edit dialog -->
+  <div class="dialog-backdrop" id="dialog-backdrop" hidden>
+    <div class="dialog" id="dialog">
+      <div class="dialog-title" id="dialog-title">Ny enhet</div>
+      <div id="dialog-error" class="field-hint" style="color:var(--color-neutral-300)" hidden></div>
+      <div id="dialog-fields"></div>
+      <div class="dialog-mode-toggle" id="dialog-mode-toggle"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="dialog-cancel">Avbryt</button>
+        <button type="button" class="btn btn-primary" id="dialog-save">Spara</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

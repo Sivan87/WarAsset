@@ -5,10 +5,10 @@ Sigmar). Python/Flask + SQLite, en enda Docker-container, driftsatt på
 Unraid, öppet på det interna hemnätverket utan inloggning — samma mönster
 som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
-**Status: Fas 1 (grunddatabas + BSData-synk + API) ÄR KLAR OCH DRIFTSATT på
-Unraid. Fas 2 (UI, se "Fas 2" nedan) är INTE påbörjad.** Kickoff-dokumenten
-ligger kvar i repot: `fas1-warasset-grunddata-bsdata.md` (backend) och
-`fas1b-warasset-deploy.md` (GitHub-koppling + deploy).
+**Status: Fas 1 (grunddatabas + BSData-synk + API) och Fas 2 (UI) är BÅDA
+KLARA.** Kickoff-dokumenten ligger kvar i repot: `fas1-warasset-grunddata-
+bsdata.md` (backend), `fas1b-warasset-deploy.md` (GitHub-koppling + deploy)
+och `fas2-warasset-ui.md` (UI).
 
 ## Produktbeslut
 
@@ -277,17 +277,118 @@ curl http://192.168.1.142:5001/
   `docker-compose.yml` bör ge samma beteende som BrickRadar redan har där,
   men är inte verifierat specifikt för WarAsset.
 
-## Fas 2 (INTE påbörjad)
+## Fas 2 — UI (KLAR)
 
-UI baserat på `Miniatyrarkiv.dc.html` (design canvas) + Nocturne-
-designsystemet, båda i `C:\WarAsset`. Mockupen sparar just nu i
-`localStorage` med hårdkodad seed-data och fria textfält för
-fraktion/typ/poäng ("army"/"role"/"points" i mockupens state) — de ska
-ersättas med sökning mot `GET /api/entries/search` och CRUD mot
-`/api/units`.
+Bygger på `Miniatyrarkiv.dc.html`-mockupen (design canvas) + Nocturne-
+designsystemet (`_ds/nocturne-.../`, båda i `C:\WarAsset`), kopplad mot
+Fas 1:s API. Kickoff-dokumentet ligger kvar som `fas2-warasset-ui.md`.
 
-Notera en terminologiskillnad att lösa i Fas 2: mockupen använder
-spelsystem-nycklarna `'40k'` / `'aos'` / **`'kt'`**, medan backend (enligt
-kickoff-dokumentets uttryckliga schema) använder **`'kill_team'`**. UI:t
-behöver antingen mappa `'kt'` → `'kill_team'` eller (enklare) bytas till att
-använda backendens nycklar rakt av.
+### Filstruktur
+
+- `templates/index.html` — statiskt sidskal (nav, stat-band, toolbar,
+  tomma containrar, dialog-markup). Ingen enhetsdata server-renderas —
+  allt hämtas och ritas av JS, se nedan.
+- `static/css/nocturne.css` — **oförändrad kopia** av designsystemets
+  `styles.css` (`_ds/nocturne-.../styles.css`). Rör inte den här filen vid
+  ändringar av utseendet — lägg appspecifikt i `app.css` istället, annars
+  tappar man spårbarheten mot källdesignsystemet.
+- `static/css/app.css` — allt appspecifikt (stat-band, kort/lista-layout,
+  combobox-dropdown, grupp-header, animationer), byggt uteslutande på
+  Nocturnes `var(--color-*)`/`var(--space-*)`/`var(--radius-*)`-tokens.
+  Innehåller en medveten fix: `[hidden] { display: none !important; }` —
+  Nocturnes `.dialog-backdrop { display: grid }` slår annars ut webbläsarens
+  inbyggda `[hidden]`-standardstil (author-CSS vinner över UA-stilen vid
+  lika specificitet), så en "dold" dialog fortsatte annars täcka hela sidan
+  och blockera alla klick. Hittades under Playwright-testningen, se nedan.
+- `static/js/app.js` — all logik. Ingen frontend-ramverk. Ett `state`-objekt
+  + en `render()`/`renderDialog()` för strukturella ändringar (öppna/stänga
+  dialogen, byta sök/anpassat-läge, ny sökträff), men RIKTADE DOM-
+  uppdateringar (inte full omritning) för tangenttryckningar i textfält
+  (namn/antal/poäng) — annars tappar inputen fokus/markörposition på varje
+  knapptryck, ett klassiskt vanilla-JS-fallgrop värt att komma ihåg om
+  koden byggs ut vidare.
+
+### Sök-först-flödet (produktbeslutet, se fas2-warasset-ui.md)
+
+Add/edit-dialogen har två lägen:
+- **Sök-läge (förval):** "Namn"-fältet är en debouncad (250ms) kombobox mot
+  `GET /api/entries/search?system=&q=`. Val av en träff låser
+  fraktion/roll (skrivskyddade, från `entry.catalogue_name`/`entry.role`)
+  och räknar poäng live från `entry.points_table` (samma
+  närmaste-träff-uppslagning som `database.py:_points_for_count`,
+  återimplementerad i JS som `pointsForCount()` eftersom `GET /api/units`
+  inte skickar med rå `points_table` — bara `computed_points`). Byte av
+  spelsystem eller ny sökterm nollställer valet.
+  - **Vid redigering** av en redan länkad enhet görs ett extra anrop till
+    `GET /api/entries/<entry_id>` för att få tag i `points_table` (som
+    kickoff-dokumentet förutsåg som en möjlig nödvändighet).
+- **Anpassat läge** (litet `← `-växlingslänk längst ner, inte förstahandsval):
+  fritt namn + antal + valfria poäng (`points_override`), ingen
+  fraktion/roll-inmatning alls — se "Avsiktlig förenkling" nedan för varför.
+
+`POST`/`PUT /api/units` anropas med `entry_id`+`count`+`status`
+(sök-läge) eller `name_override`+`count`+`points_override`+`status`
+(anpassat läge), matchar API-kontraktet i `api.py`.
+
+### `kt` → `kill_team`
+
+Löst genom att UI:t använder backendens egna nycklar (`40k`/`kill_team`/
+`aos`) rakt igenom (`SYSTEM_LABELS` i `app.js`) — mockupens `'kt'` finns
+inte kvar någonstans i den riktiga koden.
+
+### "Synka BSData nu"
+
+Ny knapp i navet (fanns inte i mockupen). Anropar `POST /api/sync`, läser
+`last_synced_at` för alla tre spelsystem innan och pollar
+`GET /api/game-systems` var 3:e sekund (max 2 minuter) tills alla tre
+tidsstämplar ändrats, och laddar då om enhetslistan. Visar "En synk körs
+redan…" vid `409`.
+
+### Medvetna avvikelser från mockupen
+
+- **Ingen fritextad fraktion/typ för anpassade enheter.** Mockupens
+  "Fraktion/armé"- och "Typ"-fält var fria textfält för ALLA enheter.
+  `collection_units`-schemat (Fas 1) har dock inget fraktions-/roll-fält
+  över huvud taget — bara `name_override`, `points_override`, `count`,
+  `status`. Att lägga till ett sådant fält hade varit en schemaändring
+  utanför den här fasens uppdrag, så anpassade enheter saknar helt
+  fraktion/roll och grupperas gemensamt (se nedan) — en tydlig, avsiktlig
+  förenkling, inte ett förbiseende.
+- **Gruppering per `catalogue_name`, ingen fast `ARMY_ORDER`-lista.**
+  Mockupens grupper kom från en hårdkodad `ARMY_ORDER`/`ARMY_SYSTEM`-lista
+  (24 rader seed-data). Med hundratals riktiga fraktioner från BSData-synken
+  är en fast lista inte rimlig — grupper sorteras istället alfabetiskt
+  (`localeCompare('sv')`), med en samlad "Anpassade enheter"-grupp sist.
+- **Rolltyp-filtret är dynamiskt**, inte mockupens fasta `ROLE_ORDER`
+  (`['Battleline','Elite','Vehicle','Character']`) — riktig BSData-data
+  har många fler och mer varierade rollvärden (t.ex. AoS "HERO"/
+  "INFANTRY", eller enstaka dataskräp som "New CategoryLink", se Fas 1:s
+  CLAUDE.md-avsnitt om Kill Team). `#role-select` byggs om från de roller
+  som faktiskt finns i den inlästa enhetslistan.
+- **Inga Phosphor-ikoner** (designsystemets readme.md rekommenderar dem).
+  De enda ikonbehoven var gruppens expand/collapse-pil — behölls som
+  mockupens enkla text-pil (▶) istället för att dra in ett helt ikon-
+  bibliotek för en enda symbol.
+- **Fotouppladdning kräver en sparad enhet** (`POST /api/units/<id>/photo`
+  behöver ett existerande `id`) — går alltså inte att bifoga foto i
+  "Ny enhet"-läget, bara efter att enheten sparats (i "Redigera enhet").
+  Filinputen är dessutom webbläsarens omålade standardutseende, inte
+  Nocturne-styling — en avgränsad, lågprioriterad kontroll.
+
+### Testat (Playwright, ingen befintlig run-skill för det här repot)
+
+Ingen `.claude/skills/`-run-skill fanns för WarAsset och `chromium-cli`
+(körmiljöns normalt föredragna verktyg) var inte tillgängligt i den här
+Windows-miljön. Verifierat istället med ett tillfälligt Playwright-projekt
+i scratchpad (`npm install playwright && npx playwright install chromium`,
+inte en del av repot) mot en lokalt startad `python app.py`. Täckte:
+sidladdning med riktig data, galleri/lista-växling, gruppcollapse, sök
+"Plague Marines" (system 40k) → korrekt Death Guard-träff, poäng
+omräknat live till 130p/190p vid antal 6/8 (samma verifierade testfall som
+Fas 1), redigera en befintlig länkad enhet (prefyllnad + omhämtning av
+`points_table`), fotouppladdning (verifierat kvarstå efter en full
+sidladdning, inte bara i minnet), spelsystem-filter (Kill Team → tom
+träfflista visas korrekt), och radering (bekräftat både i UI och direkt
+mot `GET /api/units`). Inga konsolfel. En riktig run-skill för WarAsset är
+inte skapad — värt att göra via `/run-skill-generator` om UI:t byggs ut
+vidare.
