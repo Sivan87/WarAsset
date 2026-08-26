@@ -877,6 +877,28 @@ OMKRINGLIGGANDE sidparsningen är ny (och den är trivial: hela produktsidan
 är `scope`, ingen loop över flera block behövs), inte
 bildextraktionslogiken i sig.
 
+### Direkt bildfils-länk, inte bara produktsida (tillägg efter Fas 4b)
+
+Sivan efterfrågade att även kunna klistra in en länk direkt till EN
+SPECIFIK bild i en produkts galleri (t.ex.
+`https://miniset.net/files/set/gw-99120102114-3.jpg` — bild nummer 3 i
+"Chosen of Mortarion"-galleriet, inte bara `-0`-huvudbilden en
+produktside-länk ger). `fetch_product_image` känner nu igen BÅDA formerna:
+
+- `/sets/<id>` (produktsida) — oförändrat beteende, hämtar sidan och
+  bryter ut huvudbilden via `_colorbox_image_url`.
+- `/files/set/<id>-<n>.<ext>` (direkt bildfil, `_miniset_file_product_id`)
+  — redan den slutgiltiga bild-URL:en, så INGET nätverksanrop görs alls
+  (varken rate-limitat eller annat) — bara en formkontroll på URL:en.
+  `image_source_url` (krediten på kortet) HÄRLEDS från filnamnets
+  produkt-id (`https://miniset.net/sets/<id>`) så attributionslänken ändå
+  pekar på en riktig, läsbar produktsida istället för en rå bildfil.
+
+Samma domänvalidering (`urlparse().netloc` exakt mot `miniset.net`/
+`www.miniset.net`) gäller för båda formerna — ingen substrängsmatchning.
+UI:t (`imageLinkRowHtml` i `app.js`) uppdaterades att nämna båda
+alternativen i placeholder-text och en `field-hint`.
+
 ### API
 
 - `POST /api/units/<id>/image-from-url` (`api_set_unit_image_from_url`) —

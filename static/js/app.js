@@ -590,11 +590,12 @@
         <div class="image-link-row">
           ${preview}
           <div class="image-link-controls">
-            <input class="input" type="text" id="image-link-input" autocomplete="off" placeholder="https://miniset.net/sets/…" value="${escapeHtml(d.manualImageLinkInput)}">
+            <input class="input" type="text" id="image-link-input" autocomplete="off" placeholder="https://miniset.net/sets/… eller /files/set/…" value="${escapeHtml(d.manualImageLinkInput)}">
             <button type="button" class="btn btn-ghost" id="image-link-fetch-btn" ${d.manualImageLoading ? 'disabled' : ''}>${d.manualImageLoading ? 'Hämtar…' : 'Hämta'}</button>
           </div>
         </div>
         ${badge}
+        <p class="field-hint">Klistra in länken till en produktsida (miniset.net/sets/…) eller till en specifik bild i galleriet (miniset.net/files/set/…).</p>
         ${d.manualImageError ? `<p class="field-hint" style="color:var(--color-neutral-300)">${escapeHtml(d.manualImageError)}</p>` : ''}
       </div>`;
   }

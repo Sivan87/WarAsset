@@ -207,43 +207,85 @@ def _fetch_category(game_line_slug, faction_slug, category_slug=None, page=1):
     return _parse_category_page(resp.text)
 
 
-# Bara /sets/<produkt-id> på miniset.net (eller www.miniset.net) självt
-# accepteras som en manuell bildlänk (Fas 4b) — inte t.ex. en bildfils-URL
-# (.../files/set/...) eller en fraktions-/kategorilistningssida, och inte
-# en annan domän som råkar innehålla "miniset.net" i sökvägen eller som
-# underdomän/suffix (urlparse().netloc jämförs exakt, inte med "in").
+# En manuell bildlänk (Fas 4b) accepteras i TVÅ former:
+#   1. En produktsida, /sets/<produkt-id> — huvudbilden bryts ut ur sidan
+#      (som tidigare).
+#   2. En direkt bildfils-URL, /files/set/<produkt-id>-<n>.<ext> — t.ex.
+#      https://miniset.net/files/set/gw-99120102114-3.jpg för att peka på
+#      EN SPECIFIK bild i produktens galleri (inte bara "-0"-huvudbilden).
+#      Redan den slutgiltiga bild-URL:en, så INGET nätverksanrop mot
+#      miniset.net behövs för den varianten — bara formkontrollen nedan.
+# Ingen annan sökväg accepteras, och ingen annan domän som råkar innehålla
+# "miniset.net" i sökvägen eller som underdomän/suffix
+# (urlparse().netloc jämförs exakt, inte med "in").
 _PRODUCT_PATH_RE = re.compile(r"^/sets/[A-Za-z0-9_-]+/?$")
+_FILE_PATH_RE = re.compile(r"^/files/set/([A-Za-z0-9_-]+)-\d+\.(jpe?g|png|gif|webp)$", re.I)
 
 
-def is_miniset_product_url(url):
+def _parsed_miniset_url(url):
+    """urlparse:ar url och returnerar den bara om den pekar på miniset.net
+    eller www.miniset.net, annars None — delad host-koll mellan
+    is_miniset_product_url och _miniset_file_product_id."""
     try:
         parsed = urlparse((url or "").strip())
     except ValueError:
-        return False
+        return None
     if parsed.scheme not in ("http", "https"):
-        return False
+        return None
     if parsed.netloc.lower() not in ("miniset.net", "www.miniset.net"):
-        return False
-    return bool(_PRODUCT_PATH_RE.match(parsed.path))
+        return None
+    return parsed
+
+
+def is_miniset_product_url(url):
+    parsed = _parsed_miniset_url(url)
+    return bool(parsed and _PRODUCT_PATH_RE.match(parsed.path))
+
+
+def _miniset_file_product_id(url):
+    """Om url är en direkt bildfils-länk (/files/set/<produkt-id>-<n>.ext),
+    returnerar produkt-id:t (t.ex. "gw-99120102114") — annars None."""
+    parsed = _parsed_miniset_url(url)
+    if not parsed:
+        return None
+    m = _FILE_PATH_RE.match(parsed.path)
+    return m.group(1) if m else None
 
 
 def fetch_product_image(source_url):
-    """Hämtar huvudbilden för EN specifik, av Sivan manuellt vald
-    miniset.net-produktsida (Fas 4b, se fas4b-warasset-manuell-bildlank.md
-    — för edge-cases den automatiska matchningen i match_unit() inte kan
-    lösa: flera "sculpts"/utgåvor av samma enhet, eller en hjälte som bara
-    säljs som del av ett multi-hjälte-set). Går igenom SAMMA globala
-    rate-limit som match_unit() (_rate_limited_get) och återanvänder samma
+    """Hämtar bilden för EN specifik, av Sivan manuellt vald
+    miniset.net-länk (Fas 4b, se fas4b-warasset-manuell-bildlank.md — för
+    edge-cases den automatiska matchningen i match_unit() inte kan lösa:
+    flera "sculpts"/utgåvor av samma enhet, eller en hjälte som bara säljs
+    som del av ett multi-hjälte-set), ELLER en specifik bild i en produkts
+    galleri (en direkt bildfils-länk, se _miniset_file_product_id).
+
+    En produktside-länk går igenom SAMMA globala rate-limit som
+    match_unit() (_rate_limited_get) och återanvänder samma
     bildextraktions-primitiv (_colorbox_image_url) som listningssidorna,
     se den funktionens docstring för varför bara primitiven (inte hela
-    sidparsern) återanvänds.
+    sidparsern) återanvänds. En direkt bildfils-länk kräver INGET
+    nätverksanrop — den ÄR redan den slutgiltiga bild-URL:en.
 
-    Returnerar {"image_url": "..."} vid träff, annars {"error": "..."} —
-    ALDRIG en tyst no-op (kickoff-dokumentets krav)."""
-    if not is_miniset_product_url(source_url):
-        return {"error": "Länken måste peka på en produktsida på miniset.net, t.ex. https://miniset.net/sets/gw-99810102007"}
+    Returnerar {"image_url": "...", "source_page_url": "..."} vid träff
+    (source_page_url är produktsidan krediten ska länka till — härledd
+    från filnamnets produkt-id om en direkt bildlänk gavs, annars länken
+    själv), annars {"error": "..."} — ALDRIG en tyst no-op (kickoff-
+    dokumentets krav)."""
+    url = (source_url or "").strip()
+
+    file_product_id = _miniset_file_product_id(url)
+    if file_product_id:
+        return {"image_url": url, "source_page_url": f"{BASE_URL}/sets/{file_product_id}"}
+
+    if not is_miniset_product_url(url):
+        return {"error": (
+            "Länken måste peka på en produktsida (t.ex. "
+            "https://miniset.net/sets/gw-99810102007) eller en bildfil "
+            "(t.ex. https://miniset.net/files/set/gw-99810102007-0.jpg) på miniset.net"
+        )}
     try:
-        resp = _rate_limited_get(source_url)
+        resp = _rate_limited_get(url)
     except requests.RequestException as e:
         return {"error": f"Kunde inte nå miniset.net: {e}"}
     if resp.status_code != 200:
@@ -251,7 +293,7 @@ def fetch_product_image(source_url):
     image_url = _colorbox_image_url(BeautifulSoup(resp.text, "html.parser"))
     if not image_url:
         return {"error": "Hittade ingen bild på den sidan"}
-    return {"image_url": image_url}
+    return {"image_url": image_url, "source_page_url": url}
 
 
 def match_unit(system_key, catalogue_name, entry_name, role=None):

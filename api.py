@@ -201,8 +201,13 @@ def api_set_unit_image_from_url(unit_id):
     de edge-cases automatisk matchning inte kan lösa (flera "sculpts" av
     samma enhet, en hjälte bara såld i ett multi-hjälte-set). Fungerar
     oavsett om enheten har en entry_id eller inte — länken pekar direkt på
-    en produktsida, ingen fraktion/roll behövs för att hitta den, till
-    skillnad från den automatiska matchningen."""
+    en produktsida (eller en specifik bildfil, se nedan), ingen fraktion/
+    roll behövs för att hitta den, till skillnad från den automatiska
+    matchningen. Accepterar antingen en produktsida
+    (miniset.net/sets/<id>) ELLER en direkt bildfils-länk
+    (miniset.net/files/set/<id>-<n>.<ext>, för att peka på en SPECIFIK
+    bild i produktens galleri istället för bara huvudbilden) — se
+    miniset_client.fetch_product_image."""
     unit = db.get_unit(unit_id)
     if not unit:
         return jsonify({"error": "Enheten hittades inte"}), 404
@@ -216,7 +221,7 @@ def api_set_unit_image_from_url(unit_id):
     if result.get("error"):
         return jsonify({"error": result["error"]}), 400
 
-    updated = db.set_unit_image(unit_id, result["image_url"], source_url, source="manual")
+    updated = db.set_unit_image(unit_id, result["image_url"], result["source_page_url"], source="manual")
     return jsonify(updated)
 
 
