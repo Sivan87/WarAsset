@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="sv">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <title>WarAsset</title>
@@ -22,42 +22,42 @@
       </svg>
       <div>
         <div class="nav-logo-title">WarAsset</div>
-        <div class="nav-logo-sub">Miniatyrregister</div>
+        <div class="nav-logo-sub">Miniature Registry</div>
       </div>
     </div>
 
     <div class="nav-search field">
-      <input id="search-input" class="input" type="text" placeholder="Sök enhet…" autocomplete="off">
+      <input id="search-input" class="input" type="text" placeholder="Search unit…" autocomplete="off">
     </div>
 
     <div class="seg" id="system-filter-seg">
-      <label class="seg-opt"><input type="radio" name="sysfilter" value="all" checked> Alla</label>
+      <label class="seg-opt"><input type="radio" name="sysfilter" value="all" checked> All</label>
       <label class="seg-opt"><input type="radio" name="sysfilter" value="40k"> 40k</label>
       <label class="seg-opt"><input type="radio" name="sysfilter" value="kill_team"> Kill Team</label>
       <label class="seg-opt"><input type="radio" name="sysfilter" value="aos"> AoS</label>
     </div>
 
     <span id="sync-status" class="sync-status"></span>
-    <button id="sync-btn" type="button" class="btn btn-ghost">Synka BSData</button>
-    <button id="add-btn" type="button" class="btn btn-primary">+ Ny enhet</button>
+    <button id="sync-btn" type="button" class="btn btn-ghost">Sync BSData</button>
+    <button id="add-btn" type="button" class="btn btn-primary">+ New unit</button>
   </nav>
 
   <div class="stat-band">
     <div class="container stat-grid">
       <div>
-        <div class="stat-label">Enheter</div>
+        <div class="stat-label">Units</div>
         <div class="stat-value" id="stat-total-units">0</div>
       </div>
       <div>
-        <div class="stat-label">Modeller</div>
+        <div class="stat-label">Models</div>
         <div class="stat-value" id="stat-total-models">0</div>
       </div>
       <div>
-        <div class="stat-label">Poäng totalt</div>
+        <div class="stat-label">Total points</div>
         <div class="stat-value" id="stat-total-points">0</div>
       </div>
       <div>
-        <div class="stat-label">Målade</div>
+        <div class="stat-label">Painted</div>
         <div class="stat-value"><span id="stat-painted-pct">0</span>%</div>
         <div class="stat-bar"><div class="stat-bar-fill" id="stat-bar-fill" style="width:0%"></div></div>
       </div>
@@ -66,17 +66,17 @@
 
   <div class="container toolbar">
     <div class="seg" id="view-seg">
-      <label class="seg-opt"><input type="radio" name="viewmode" value="grid" checked> Galleri</label>
-      <label class="seg-opt"><input type="radio" name="viewmode" value="list"> Lista</label>
+      <label class="seg-opt"><input type="radio" name="viewmode" value="grid" checked> Grid</label>
+      <label class="seg-opt"><input type="radio" name="viewmode" value="list"> List</label>
     </div>
     <select id="sort-select" class="input toolbar-select">
-      <option value="name">Sortera: Namn</option>
-      <option value="points">Sortera: Poäng</option>
-      <option value="count">Sortera: Antal</option>
-      <option value="status">Sortera: Status</option>
+      <option value="name">Sort: Name</option>
+      <option value="points">Sort: Points</option>
+      <option value="count">Sort: Count</option>
+      <option value="status">Sort: Status</option>
     </select>
     <select id="role-select" class="input toolbar-select">
-      <option value="all">Typ: Alla</option>
+      <option value="all">Type: All</option>
     </select>
     <div class="toolbar-hint" id="visible-hint"></div>
   </div>
@@ -84,24 +84,24 @@
   <div class="container" id="groups-container"></div>
 
   <div class="empty-state" id="empty-state" hidden>
-    <p>Inga enheter matchar din sökning.</p>
+    <p>No units match your search.</p>
   </div>
 
   <!-- Add/Edit dialog -->
   <div class="dialog-backdrop" id="dialog-backdrop" hidden>
     <div class="dialog" id="dialog">
-      <div class="dialog-title" id="dialog-title">Ny enhet</div>
+      <div class="dialog-title" id="dialog-title">New unit</div>
       <div id="dialog-error" class="field-hint" style="color:var(--color-neutral-300)" hidden></div>
       <div id="dialog-fields"></div>
       <div class="dialog-mode-toggle" id="dialog-mode-toggle"></div>
       <div class="dialog-actions">
-        <button type="button" class="btn btn-secondary" id="dialog-cancel">Avbryt</button>
-        <button type="button" class="btn btn-primary" id="dialog-save">Spara</button>
+        <button type="button" class="btn btn-secondary" id="dialog-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="dialog-save">Save</button>
       </div>
     </div>
   </div>
 
-  <!-- Fas 3: enhetsdetalj (datasheet-vy) vid klick på ett enhetsnamn -->
+  <!-- Fas 3: unit detail (datasheet view) on click of a unit name -->
   <div class="dialog-backdrop" id="view-dialog-backdrop" hidden>
     <div class="dialog view-dialog" id="view-dialog">
       <div class="view-dialog-head">
@@ -109,7 +109,7 @@
           <div class="view-dialog-name" id="view-dialog-name"></div>
           <div class="view-dialog-keywords" id="view-dialog-keywords"></div>
         </div>
-        <button type="button" class="btn btn-secondary" id="view-dialog-close">Stäng</button>
+        <button type="button" class="btn btn-secondary" id="view-dialog-close">Close</button>
       </div>
       <div id="view-dialog-body"></div>
     </div>

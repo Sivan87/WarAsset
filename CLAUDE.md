@@ -992,3 +992,56 @@ korrekta, olika produktbilder med 📌-markeringen synlig och läsbar. Inga
 JS-runtime-fel (en enda loggad post var webbläsarens egen nätverks-
 statusloggning av det AVSIKTLIGT ogiltiga anropet, inte en kodkrasch).
 Alla testenheter raderade efteråt.
+
+## UI-språk: engelska (ändrat 2026-08-26)
+
+UI:t (`templates/index.html`, alla text-strängar i `static/js/app.js`) och
+alla felmeddelanden som når webbläsaren (`jsonify({"error": ...})` i
+`api.py` och `miniset_client.py`, t.ex. "entry_id points to an unknown
+BSData entry") är nu på ENGELSKA, på Sivans begäran. `<html lang="en">`.
+
+**Vad som INTE översattes, medvetet:** kod-kommentarer/docstrings i alla
+`.py`/`.js`-filer, samt alla `.md`-dokument (`CLAUDE.md`, `TODO.md`,
+kickoff-dokumenten) — dessa är utvecklingsdokumentation, inte del av
+"verktyget" Sivan använder i webbläsaren, och förblir på svenska som
+tidigare. Server-loggrader (`print(...)`, syns bara i `docker logs`, inte i
+UI:t) rördes inte heller. BSData:s egen data (fraktionsnamn som
+"Chaos - Death Guard", roller som "Battleline", vapenprofiler/nyckelord i
+enhetsdetalj-dialogen) var redan på engelska rakt från källan — inget att
+översätta där.
+
+`STATUS_LABEL`/`STATUSES` i `database.py` (`unbuilt`/`built`/`painted`) är
+INTERNA databas-/API-nycklar, inte UI-text — bara VISNINGSTEXTEN i
+`app.js` (`STATUS_LABEL`-objektets värden: "Unbuilt"/"Built"/"Painted")
+ändrades, inte nyckeln som lagras i databasen eller skickas i JSON.
+
+`localeCompare(..., 'sv')` → `'en'` på de tre ställena i `app.js` som
+sorterar enhetsnamn/gruppnycklar/roller (påverkar bara sorteringsordning
+för specialtecken, marginellt i praktiken eftersom det mesta innehållet
+redan är engelska produktnamn).
+
+## Layoutfixar (2026-08-26)
+
+Två CSS-buggar hittade av Sivan i skarp drift, båda i `static/css/app.css`:
+
+- **`.stat-band`** (den lila statistik-panelen) var full-bleed (ingen
+  `max-width`) medan resten av sidan (nav/toolbar/grupper) är begränsad
+  till `.container`s `max-width: 1160px` — på en bred skärm blev panelen
+  synligt bredare än allt annat under den. Fix: `.stat-band` fick samma
+  `max-width: 1160px; margin: ... auto;` plus avrundade hörn
+  (`border-radius: var(--radius-lg)`) så den nu ser ut som en avgränsad
+  panel i samma bredd som resten, inte en full-bredd hero-banner.
+- **`.toolbar-select`** (Sortera-/Typ-väljarna) ärver `width: 100%` från
+  Nocturnes generiska `.input`-klass. I en `display:flex`-rad tvingar det
+  varje `<select>` att ta hela radens bredd själv, vilket knuffade
+  Galleri/Lista-togglen och båda väljarna ner på VARSIN rad istället för
+  att stå sida vid sida. Fix: `.toolbar-select { width: auto; min-width:
+  140px; flex: none; }` — kompakta, sitter nu bredvid Galleri/Lista-
+  togglen i toolbaren, som avsett.
+
+Verifierat med Playwright (skärmdumpar, bred viewport 2000px) mot en
+lokalt körande server: panelen matchar containerbredden, toolbaren ligger
+på en rad, och en genomgång av redigera-dialogen/listvyn/
+enhetsdetalj-dialogen bekräftade att all UI-text är engelsk (en missad
+sträng, tabellrubriken "Namn" i vapentabellerna, hittades och fixades
+under samma genomgång — se `viewWeaponsTableHtml` i `app.js`).

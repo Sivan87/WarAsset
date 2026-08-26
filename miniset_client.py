@@ -280,19 +280,19 @@ def fetch_product_image(source_url):
 
     if not is_miniset_product_url(url):
         return {"error": (
-            "Länken måste peka på en produktsida (t.ex. "
-            "https://miniset.net/sets/gw-99810102007) eller en bildfil "
-            "(t.ex. https://miniset.net/files/set/gw-99810102007-0.jpg) på miniset.net"
+            "The link must point to a product page (e.g. "
+            "https://miniset.net/sets/gw-99810102007) or an image file "
+            "(e.g. https://miniset.net/files/set/gw-99810102007-0.jpg) on miniset.net"
         )}
     try:
         resp = _rate_limited_get(url)
     except requests.RequestException as e:
-        return {"error": f"Kunde inte nå miniset.net: {e}"}
+        return {"error": f"Could not reach miniset.net: {e}"}
     if resp.status_code != 200:
-        return {"error": f"miniset.net svarade med statuskod {resp.status_code}"}
+        return {"error": f"miniset.net responded with status code {resp.status_code}"}
     image_url = _colorbox_image_url(BeautifulSoup(resp.text, "html.parser"))
     if not image_url:
-        return {"error": "Hittade ingen bild på den sidan"}
+        return {"error": "No image found on that page"}
     return {"image_url": image_url, "source_page_url": url}
 
 

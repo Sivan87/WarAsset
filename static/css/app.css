@@ -23,7 +23,15 @@ body { padding-bottom: var(--space-8); }
 .sync-status.is-error { color: var(--color-neutral-300); }
 
 /* — stat band — */
-.stat-band { background: linear-gradient(135deg, var(--color-section), var(--color-section-glow) 130%); }
+/* Constrained to the same width as .container (nav/toolbar/groups) instead
+   of a full-bleed edge-to-edge hero strip — on a wide viewport the two
+   otherwise looked visually disconnected (this box floating wider than
+   everything below it). */
+.stat-band {
+  max-width: 1160px; margin: var(--space-4) auto 0;
+  border-radius: var(--radius-lg); overflow: hidden;
+  background: linear-gradient(135deg, var(--color-section), var(--color-section-glow) 130%);
+}
 .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-8); padding-block: var(--space-6); }
 .stat-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent-2-300); }
 .stat-value { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 34px; line-height: 1.15; }
@@ -32,7 +40,10 @@ body { padding-bottom: var(--space-8); }
 
 /* — toolbar — */
 .toolbar { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0 var(--space-1); flex-wrap: wrap; }
-.toolbar-select { min-height: 36px; }
+/* .input (nocturne.css) sets width:100% — without overriding it here, each
+   <select> claims the ENTIRE toolbar row on its own and pushes every other
+   control (including the Grid/List toggle) onto its own wrapped line. */
+.toolbar-select { width: auto; min-width: 140px; flex: none; min-height: 36px; }
 .toolbar-hint { margin-left: auto; font-size: 12px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
 
 /* — groups — */

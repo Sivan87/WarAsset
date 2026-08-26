@@ -13,7 +13,7 @@
   'use strict';
 
   const SYSTEM_LABELS = { '40k': '40k', kill_team: 'Kill Team', aos: 'AoS' };
-  const STATUS_LABEL = { unbuilt: 'Ej byggd', built: 'Byggd', painted: 'Målad' };
+  const STATUS_LABEL = { unbuilt: 'Unbuilt', built: 'Built', painted: 'Painted' };
   const STATUS_ORDER = { unbuilt: 0, built: 1, painted: 2 };
   const CUSTOM_GROUP_KEY = '__custom__';
 
@@ -40,6 +40,10 @@
     try { body = await res.json(); } catch (e) { /* icke-JSON-svar */ }
     if (!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
     return body;
+  }
+
+  function plural(n, word) {
+    return n + ' ' + word + (n === 1 ? '' : 's');
   }
 
   function escapeHtml(s) {
@@ -74,15 +78,15 @@
   // ---------------------------------------------------------------------
 
   function groupKeyFor(u) { return u.catalogue_name || CUSTOM_GROUP_KEY; }
-  function groupLabelFor(u) { return u.catalogue_name || 'Anpassade enheter'; }
-  function groupSystemLabel(u) { return u.system_key ? (SYSTEM_LABELS[u.system_key] || u.system_key) : 'Anpassad'; }
+  function groupLabelFor(u) { return u.catalogue_name || 'Custom units'; }
+  function groupSystemLabel(u) { return u.system_key ? (SYSTEM_LABELS[u.system_key] || u.system_key) : 'Custom'; }
 
   function computeView() {
     const search = state.search.trim().toLowerCase();
     const filtered = state.units.filter((u) => {
       if (search && !u.name.toLowerCase().includes(search)) return false;
       if (state.filterSystem !== 'all' && u.system_key !== state.filterSystem) return false;
-      if (state.filterRole !== 'all' && (u.role || 'Övrigt') !== state.filterRole) return false;
+      if (state.filterRole !== 'all' && (u.role || 'Other') !== state.filterRole) return false;
       return true;
     });
 
@@ -97,13 +101,13 @@
       if (state.sortKey === 'points') return (b.computed_points || 0) - (a.computed_points || 0);
       if (state.sortKey === 'count') return b.count - a.count;
       if (state.sortKey === 'status') return STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-      return a.name.localeCompare(b.name, 'sv');
+      return a.name.localeCompare(b.name, 'en');
     };
 
     const groupKeys = Array.from(groupsMap.keys()).sort((a, b) => {
       if (a === CUSTOM_GROUP_KEY) return 1;
       if (b === CUSTOM_GROUP_KEY) return -1;
-      return a.localeCompare(b, 'sv');
+      return a.localeCompare(b, 'en');
     });
 
     let visibleCount = 0;
@@ -152,17 +156,17 @@
     }
     if (u.image_url) {
       const manual = u.image_source === 'manual';
-      const creditLabel = (manual ? '📌 ' : '') + 'Bild: miniset.net';
+      const creditLabel = (manual ? '📌 ' : '') + 'Image: miniset.net';
       const creditTitle = manual
-        ? 'Manuellt vald bild — skyddad från automatisk om-matchning'
-        : 'Automatiskt matchad bild från miniset.net';
+        ? 'Manually selected image — protected from automatic re-matching'
+        : 'Automatically matched image from miniset.net';
       return `
         <div class="unit-photo lighten">
           <img src="${escapeHtml(u.image_url)}" alt="">
           <a class="unit-image-credit" href="${escapeHtml(u.image_source_url || '#')}" title="${escapeHtml(creditTitle)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${creditLabel}</a>
         </div>`;
     }
-    return `<div class="unit-photo"><span class="unit-photo-label">FOTO: ${escapeHtml(u.name)}</span></div>`;
+    return `<div class="unit-photo"><span class="unit-photo-label">PHOTO: ${escapeHtml(u.name)}</span></div>`;
   }
 
   // Ingen bulk-hämtning (medvetet, se kickoff-dokumentet) — bara en knapp
@@ -172,34 +176,34 @@
   // länkad bild (Fas 4b, fungerar oavsett entry_id).
   function imageActionsHtml(u) {
     const fetchBtn = u.entry_id != null
-      ? `<button type="button" class="btn btn-ghost" data-action="fetch-image" data-unit-id="${u.id}">${u.image_url ? 'Matcha om bild' : 'Hämta bild'}</button>`
+      ? `<button type="button" class="btn btn-ghost" data-action="fetch-image" data-unit-id="${u.id}">${u.image_url ? 'Re-match image' : 'Fetch image'}</button>`
       : '';
     const deleteBtn = u.image_url
-      ? `<button type="button" class="btn btn-ghost" data-action="delete-image" data-unit-id="${u.id}">Ta bort bild</button>`
+      ? `<button type="button" class="btn btn-ghost" data-action="delete-image" data-unit-id="${u.id}">Remove image</button>`
       : '';
     return fetchBtn + deleteBtn;
   }
 
   function unitCardHtml(u) {
-    const pointsLabel = u.computed_points == null ? '–' : (u.computed_points + ' p');
+    const pointsLabel = u.computed_points == null ? '–' : (u.computed_points + ' pts');
     return `
       <div class="unit-card card elev-sm">
         ${unitPhotoHtml(u)}
         <div class="unit-card-body">
           <div class="unit-card-top">
-            <div class="card-kicker">${escapeHtml(u.catalogue_name || 'Anpassad')}</div>
-            <div class="tag tag-neutral">${escapeHtml(u.role || 'Övrigt')}</div>
+            <div class="card-kicker">${escapeHtml(u.catalogue_name || 'Custom')}</div>
+            <div class="tag tag-neutral">${escapeHtml(u.role || 'Other')}</div>
           </div>
           <button type="button" class="unit-card-name name-link" data-action="show-stats" data-unit-id="${u.id}">${escapeHtml(u.name)}</button>
           <div class="unit-card-meta">
-            <span>${u.count} mod.</span>
+            <span>${plural(u.count, 'model')}</span>
             <span>${pointsLabel}</span>
           </div>
           <div class="unit-card-foot">
             <span class="${statusTagClass(u.status)}">${STATUS_LABEL[u.status]}</span>
             <div class="unit-card-actions">
-              <button type="button" class="btn btn-ghost" data-action="edit" data-unit-id="${u.id}">Redigera</button>
-              <button type="button" class="btn btn-ghost" data-action="delete" data-unit-id="${u.id}">Ta bort</button>
+              <button type="button" class="btn btn-ghost" data-action="edit" data-unit-id="${u.id}">Edit</button>
+              <button type="button" class="btn btn-ghost" data-action="delete" data-unit-id="${u.id}">Delete</button>
             </div>
           </div>
           <div class="unit-card-actions">
@@ -210,16 +214,16 @@
   }
 
   function unitRowHtml(u) {
-    const pointsLabel = u.computed_points == null ? '–' : (u.computed_points + ' p');
+    const pointsLabel = u.computed_points == null ? '–' : (u.computed_points + ' pts');
     return `
       <tr>
-        <td><button type="button" class="name-link" data-action="show-stats" data-unit-id="${u.id}">${escapeHtml(u.name)}</button> <span class="name-sub">· ${escapeHtml(u.role || 'Övrigt')}</span></td>
+        <td><button type="button" class="name-link" data-action="show-stats" data-unit-id="${u.id}">${escapeHtml(u.name)}</button> <span class="name-sub">· ${escapeHtml(u.role || 'Other')}</span></td>
         <td class="num">${u.count}</td>
         <td class="num">${pointsLabel}</td>
         <td class="center"><span class="${statusTagClass(u.status)}">${STATUS_LABEL[u.status]}</span></td>
         <td class="actions">
-          <button type="button" class="btn btn-ghost" data-action="edit" data-unit-id="${u.id}">Redigera</button>
-          <button type="button" class="btn btn-ghost" data-action="delete" data-unit-id="${u.id}">Ta bort</button>
+          <button type="button" class="btn btn-ghost" data-action="edit" data-unit-id="${u.id}">Edit</button>
+          <button type="button" class="btn btn-ghost" data-action="delete" data-unit-id="${u.id}">Delete</button>
           ${imageActionsHtml(u)}
         </td>
       </tr>`;
@@ -233,7 +237,7 @@
         body = `<div class="unit-grid">${group.units.map(unitCardHtml).join('')}</div>`;
       } else {
         body = `<div class="unit-table-wrap"><table class="table unit-table">
-          <thead><tr><th>Enhet</th><th style="text-align:right">Antal</th><th style="text-align:right">Poäng</th><th style="text-align:center">Status</th><th></th></tr></thead>
+          <thead><tr><th>Unit</th><th style="text-align:right">Count</th><th style="text-align:right">Points</th><th style="text-align:center">Status</th><th></th></tr></thead>
           <tbody>${group.units.map(unitRowHtml).join('')}</tbody>
         </table></div>`;
       }
@@ -244,7 +248,7 @@
           <span class="group-chevron ${expanded ? 'is-expanded' : ''}">▶</span>
           <h3 class="group-title">${escapeHtml(group.name)}</h3>
           <span class="tag tag-neutral">${escapeHtml(group.systemLabel)}</span>
-          <span class="group-meta">${group.count} enheter · ${group.models} modeller · ${group.points} p</span>
+          <span class="group-meta">${plural(group.count, 'unit')} · ${plural(group.models, 'model')} · ${group.points} pts</span>
         </button>
         ${expanded ? `<div>${body}</div>` : ''}
       </div>`;
@@ -264,10 +268,10 @@
   }
 
   function renderRoleOptions() {
-    const roles = Array.from(new Set(state.units.map((u) => u.role || 'Övrigt'))).sort((a, b) => a.localeCompare(b, 'sv'));
+    const roles = Array.from(new Set(state.units.map((u) => u.role || 'Other'))).sort((a, b) => a.localeCompare(b, 'en'));
     const sel = document.getElementById('role-select');
     const current = state.filterRole;
-    sel.innerHTML = '<option value="all">Typ: Alla</option>' + roles.map((r) => `<option value="${escapeHtml(r)}">Typ: ${escapeHtml(r)}</option>`).join('');
+    sel.innerHTML = '<option value="all">Type: All</option>' + roles.map((r) => `<option value="${escapeHtml(r)}">Type: ${escapeHtml(r)}</option>`).join('');
     sel.value = roles.includes(current) ? current : 'all';
     state.filterRole = sel.value;
   }
@@ -278,7 +282,7 @@
     renderRoleOptions();
 
     const { groups, visibleCount } = computeView();
-    document.getElementById('visible-hint').textContent = visibleCount + ' av ' + state.units.length + ' enheter visas';
+    document.getElementById('visible-hint').textContent = visibleCount + ' of ' + state.units.length + ' units shown';
 
     const container = document.getElementById('groups-container');
     const empty = document.getElementById('empty-state');
@@ -377,7 +381,7 @@
     const keySet = new Set();
     weapons.forEach((w) => Object.keys(w.characteristics || {}).forEach((k) => keySet.add(k)));
     const keys = sortedCharKeys(Object.fromEntries(Array.from(keySet, (k) => [k, true])));
-    const thead = '<tr><th>Namn</th>' + keys.map((k) => `<th>${escapeHtml(k)}</th>`).join('') + '</tr>';
+    const thead = '<tr><th>Name</th>' + keys.map((k) => `<th>${escapeHtml(k)}</th>`).join('') + '</tr>';
     const rows = weapons.map((w) => {
       const cells = keys.map((k) => `<td>${escapeHtml((w.characteristics && w.characteristics[k]) ?? '–')}</td>`).join('');
       return `<tr><td>${escapeHtml(w.name || '')}</td>${cells}</tr>`;
@@ -394,7 +398,7 @@
   function viewDialogBodyHtml(entry) {
     const profiles = entry.profiles || [];
     if (!profiles.length) {
-      return '<p class="view-nolink">Ingen profildata tillgänglig i BSData för den här posten.</p>';
+      return '<p class="view-nolink">No profile data available in BSData for this entry.</p>';
     }
     const header = profiles.find((p) => VIEW_HEADER_TYPE_RE.test(p.type || '')) || profiles[0];
     const rest = profiles.filter((p) => p !== header);
@@ -407,7 +411,7 @@
       abilities.map(viewAbilityHtml).join('') +
       viewWeaponsTableHtml('Ranged Weapons', ranged) +
       viewWeaponsTableHtml('Melee Weapons', melee) +
-      viewWeaponsTableHtml('Vapen', otherWeapons);
+      viewWeaponsTableHtml('Weapons', otherWeapons);
   }
 
   function openViewDialog(unitId) {
@@ -417,20 +421,20 @@
     document.getElementById('view-dialog-backdrop').hidden = false;
     document.getElementById('view-dialog-name').textContent = u.name;
     document.getElementById('view-dialog-keywords').textContent =
-      [u.catalogue_name, u.role].filter(Boolean).join(' · ') || 'Anpassad enhet';
+      [u.catalogue_name, u.role].filter(Boolean).join(' · ') || 'Custom unit';
 
     const body = document.getElementById('view-dialog-body');
     if (u.entry_id == null) {
-      body.innerHTML = '<p class="view-nolink">Ingen BSData-koppling — anpassad enhet.</p>';
+      body.innerHTML = '<p class="view-nolink">No BSData link — custom unit.</p>';
       return;
     }
-    body.innerHTML = '<p class="field-hint">Laddar…</p>';
+    body.innerHTML = '<p class="field-hint">Loading…</p>';
     api('/api/entries/' + u.entry_id).then((entry) => {
-      if (state.viewingUnitId !== unitId) return; // stängd/bytt under tiden
+      if (state.viewingUnitId !== unitId) return; // closed/switched in the meantime
       body.innerHTML = viewDialogBodyHtml(entry);
     }).catch((e) => {
       if (state.viewingUnitId !== unitId) return;
-      body.innerHTML = `<p class="view-nolink">Kunde inte hämta statistik: ${escapeHtml(e.message)}</p>`;
+      body.innerHTML = `<p class="view-nolink">Could not fetch stats: ${escapeHtml(e.message)}</p>`;
     });
   }
 
@@ -514,7 +518,7 @@
         updateSelectedEntryBox();
         updateComputedPoints();
       } catch (e) {
-        if (state.dialog) { state.dialog.error = 'Kunde inte hämta BSData-posten: ' + e.message; renderDialogError(); }
+        if (state.dialog) { state.dialog.error = 'Could not fetch the BSData entry: ' + e.message; renderDialogError(); }
       }
     }
   }
@@ -542,7 +546,7 @@
     return `
       <div class="selected-entry" id="selected-entry-box">
         <div class="selected-entry-name">${escapeHtml(e.name)}</div>
-        <div class="selected-entry-meta">${escapeHtml(e.catalogue_name)} · ${escapeHtml(e.role || 'Övrigt')}</div>
+        <div class="selected-entry-meta">${escapeHtml(e.catalogue_name)} · ${escapeHtml(e.role || 'Other')}</div>
       </div>`;
   }
 
@@ -559,10 +563,10 @@
     if (!d.editingId) return '';
     const photo = d.photoPath
       ? `<div class="unit-photo lighten"><img src="${escapeHtml(d.photoPath)}" alt=""></div>`
-      : `<div class="unit-photo"><span class="unit-photo-label">Inget foto</span></div>`;
+      : `<div class="unit-photo"><span class="unit-photo-label">No photo</span></div>`;
     return `
       <div class="field">
-        <label>Foto</label>
+        <label>Photo</label>
         <div class="photo-row">
           ${photo}
           <input type="file" id="photo-input" accept="image/jpeg,image/png,image/webp,image/gif">
@@ -582,20 +586,20 @@
       ? `<div class="unit-photo lighten image-link-preview"><img src="${escapeHtml(d.imageUrl)}" alt=""></div>`
       : '';
     const badge = d.imageSource === 'manual'
-      ? '<span class="tag tag-accent">📌 Manuellt vald</span>'
-      : (d.imageSource === 'auto' ? '<span class="tag tag-neutral">Auto-matchad</span>' : '');
+      ? '<span class="tag tag-accent">📌 Manually selected</span>'
+      : (d.imageSource === 'auto' ? '<span class="tag tag-neutral">Auto-matched</span>' : '');
     return `
       <div class="field">
-        <label>Länk till rätt bild (miniset.net)</label>
+        <label>Link to correct image (miniset.net)</label>
         <div class="image-link-row">
           ${preview}
           <div class="image-link-controls">
-            <input class="input" type="text" id="image-link-input" autocomplete="off" placeholder="https://miniset.net/sets/… eller /files/set/…" value="${escapeHtml(d.manualImageLinkInput)}">
-            <button type="button" class="btn btn-ghost" id="image-link-fetch-btn" ${d.manualImageLoading ? 'disabled' : ''}>${d.manualImageLoading ? 'Hämtar…' : 'Hämta'}</button>
+            <input class="input" type="text" id="image-link-input" autocomplete="off" placeholder="https://miniset.net/sets/… or /files/set/…" value="${escapeHtml(d.manualImageLinkInput)}">
+            <button type="button" class="btn btn-ghost" id="image-link-fetch-btn" ${d.manualImageLoading ? 'disabled' : ''}>${d.manualImageLoading ? 'Fetching…' : 'Fetch'}</button>
           </div>
         </div>
         ${badge}
-        <p class="field-hint">Klistra in länken till en produktsida (miniset.net/sets/…) eller till en specifik bild i galleriet (miniset.net/files/set/…).</p>
+        <p class="field-hint">Paste the link to a product page (miniset.net/sets/…) or to a specific image in the gallery (miniset.net/files/set/…).</p>
         ${d.manualImageError ? `<p class="field-hint" style="color:var(--color-neutral-300)">${escapeHtml(d.manualImageError)}</p>` : ''}
       </div>`;
   }
@@ -605,28 +609,28 @@
     if (d.mode === 'search') {
       return `
         <div class="field">
-          <label>Spelsystem</label>
+          <label>Game system</label>
           ${fieldSegHtml('draft-system', [['40k', '40k'], ['kill_team', 'Kill Team'], ['aos', 'AoS']], d.system)}
         </div>
         <div class="field combobox">
-          <label>Namn</label>
-          <input class="input" type="text" id="name-search-input" autocomplete="off" placeholder="Sök t.ex. Plague Marines…" value="${escapeHtml(d.nameQuery)}">
+          <label>Name</label>
+          <input class="input" type="text" id="name-search-input" autocomplete="off" placeholder="Search e.g. Plague Marines…" value="${escapeHtml(d.nameQuery)}">
           <div class="combobox-results" id="combobox-results" hidden></div>
         </div>
         <div id="selected-entry-slot">${selectedEntryBoxHtml()}</div>
         <div class="field-row">
           <div class="field">
-            <label>Antal modeller</label>
+            <label>Number of models</label>
             <input class="input" type="number" min="1" id="count-input" value="${escapeHtml(d.count)}">
           </div>
           <div class="field">
-            <label>Poäng</label>
+            <label>Points</label>
             <div class="readonly-value" id="points-display">${computedPointsText()}</div>
           </div>
         </div>
         <div class="field">
-          <label>Målningsstatus</label>
-          ${fieldSegHtml('draft-status', [['unbuilt', 'Ej byggd'], ['built', 'Byggd'], ['painted', 'Målad']], d.status)}
+          <label>Paint status</label>
+          ${fieldSegHtml('draft-status', [['unbuilt', 'Unbuilt'], ['built', 'Built'], ['painted', 'Painted']], d.status)}
         </div>
         ${photoRowHtml()}
         <div id="image-link-slot">${imageLinkRowHtml()}</div>
@@ -634,37 +638,37 @@
     }
     return `
       <div class="field">
-        <label>Namn</label>
-        <input class="input" type="text" id="custom-name-input" value="${escapeHtml(d.customName)}" placeholder="t.ex. Min konverterade Typhus">
+        <label>Name</label>
+        <input class="input" type="text" id="custom-name-input" value="${escapeHtml(d.customName)}" placeholder="e.g. My converted Typhus">
       </div>
       <div class="field-row">
         <div class="field">
-          <label>Antal modeller</label>
+          <label>Number of models</label>
           <input class="input" type="number" min="1" id="count-input" value="${escapeHtml(d.count)}">
         </div>
         <div class="field">
-          <label>Poäng (valfritt)</label>
+          <label>Points (optional)</label>
           <input class="input" type="number" min="0" id="custom-points-input" value="${escapeHtml(d.customPoints)}" placeholder="–">
         </div>
       </div>
       <div class="field">
-        <label>Målningsstatus</label>
-        ${fieldSegHtml('draft-status', [['unbuilt', 'Ej byggd'], ['built', 'Byggd'], ['painted', 'Målad']], d.status)}
+        <label>Paint status</label>
+        ${fieldSegHtml('draft-status', [['unbuilt', 'Unbuilt'], ['built', 'Built'], ['painted', 'Painted']], d.status)}
       </div>
       ${photoRowHtml()}
       <div id="image-link-slot">${imageLinkRowHtml()}</div>
-      <p class="field-hint">Anpassad enhet: finns inte i BSData-katalogen (t.ex. en konvertering/scratch-build), så fraktion/roll fylls inte i automatiskt.</p>
+      <p class="field-hint">Custom unit: not in the BSData catalogue (e.g. a conversion/scratch-build), so faction/role are not filled in automatically.</p>
     `;
   }
 
   function renderDialog() {
     const d = state.dialog;
     document.getElementById('dialog-backdrop').hidden = false;
-    document.getElementById('dialog-title').textContent = d.editingId ? 'Redigera enhet' : 'Ny enhet';
+    document.getElementById('dialog-title').textContent = d.editingId ? 'Edit unit' : 'New unit';
     document.getElementById('dialog-fields').innerHTML = dialogFieldsHtml();
     document.getElementById('dialog-mode-toggle').innerHTML = d.mode === 'search'
-      ? 'Hittar du inte enheten i BSData? <a data-action="switch-mode" data-mode="custom">Lägg till en anpassad enhet</a>'
-      : '<a data-action="switch-mode" data-mode="search">← Sök i BSData istället</a>';
+      ? 'Can\'t find the unit in BSData? <a data-action="switch-mode" data-mode="custom">Add a custom unit</a>'
+      : '<a data-action="switch-mode" data-mode="search">← Search BSData instead</a>';
     document.getElementById('dialog-save').disabled = !!d.saving;
     renderDialogError();
   }
@@ -684,20 +688,20 @@
     const box = document.getElementById('combobox-results');
     if (!box) return;
     if (d.searchLoading) {
-      box.innerHTML = '<div class="combobox-empty">Söker…</div>';
+      box.innerHTML = '<div class="combobox-empty">Searching…</div>';
       box.hidden = false;
       return;
     }
     if (!d.nameQuery.trim()) { box.hidden = true; box.innerHTML = ''; return; }
     if (d.searchResults.length === 0) {
-      box.innerHTML = '<div class="combobox-empty">Inga träffar.</div>';
+      box.innerHTML = '<div class="combobox-empty">No matches.</div>';
       box.hidden = false;
       return;
     }
     box.innerHTML = d.searchResults.map((r) => `
       <div class="combobox-result" data-action="select-entry" data-entry-id="${r.id}">
         <div class="combobox-result-name">${escapeHtml(r.name)}</div>
-        <div class="combobox-result-meta">${escapeHtml(r.catalogue_name)} · ${escapeHtml(r.role || 'Övrigt')}</div>
+        <div class="combobox-result-meta">${escapeHtml(r.catalogue_name)} · ${escapeHtml(r.role || 'Other')}</div>
       </div>`).join('');
     box.hidden = false;
   }
@@ -759,7 +763,7 @@
       if (u) u.photo_path = updated.photo_path;
       renderDialog();
     } catch (e) {
-      d.error = 'Foto kunde inte laddas upp: ' + e.message;
+      d.error = 'Could not upload photo: ' + e.message;
       renderDialogError();
     }
   }
@@ -777,7 +781,7 @@
     const d = state.dialog;
     if (!d || !d.editingId) return;
     const url = (d.manualImageLinkInput || '').trim();
-    if (!url) { d.manualImageError = 'Klistra in en länk till en produktsida på miniset.net först.'; updateImageLinkRow(); return; }
+    if (!url) { d.manualImageError = 'Paste a link to a product page on miniset.net first.'; updateImageLinkRow(); return; }
     d.manualImageLoading = true;
     d.manualImageError = null;
     updateImageLinkRow();
@@ -803,18 +807,18 @@
     let payload;
 
     const count = parseInt(d.count, 10);
-    if (!count || count < 1) { d.error = 'Antal måste vara ett positivt heltal.'; renderDialogError(); return; }
+    if (!count || count < 1) { d.error = 'Count must be a positive integer.'; renderDialogError(); return; }
 
     if (d.mode === 'search') {
-      if (!d.entryId) { d.error = 'Välj en enhet ur sökresultaten.'; renderDialogError(); return; }
+      if (!d.entryId) { d.error = 'Select a unit from the search results.'; renderDialogError(); return; }
       payload = { entry_id: d.entryId, name_override: null, count, status: d.status, points_override: null };
     } else {
       const name = d.customName.trim();
-      if (!name) { d.error = 'Namn krävs.'; renderDialogError(); return; }
+      if (!name) { d.error = 'Name is required.'; renderDialogError(); return; }
       let pointsOverride = null;
       if (d.customPoints !== '' && d.customPoints != null) {
         pointsOverride = parseInt(d.customPoints, 10);
-        if (Number.isNaN(pointsOverride)) { d.error = 'Poäng måste vara ett heltal.'; renderDialogError(); return; }
+        if (Number.isNaN(pointsOverride)) { d.error = 'Points must be an integer.'; renderDialogError(); return; }
       }
       payload = { entry_id: null, name_override: name, count, status: d.status, points_override: pointsOverride };
     }
@@ -840,12 +844,12 @@
   async function deleteUnit(unitId) {
     const u = state.units.find((x) => x.id === unitId);
     if (!u) return;
-    if (!window.confirm('Ta bort "' + u.name + '"?')) return;
+    if (!window.confirm('Delete "' + u.name + '"?')) return;
     try {
       await api('/api/units/' + unitId, { method: 'DELETE' });
       await loadUnits();
     } catch (e) {
-      alert('Kunde inte ta bort enheten: ' + e.message);
+      alert('Could not delete the unit: ' + e.message);
     }
   }
 
@@ -865,17 +869,17 @@
     const u = state.units.find((x) => x.id === unitId);
     let force = false;
     if (u && u.image_source === 'manual') {
-      if (!window.confirm('Den här enheten har en manuellt vald bild. Ersätt den med en automatisk matchning?')) return;
+      if (!window.confirm('This unit has a manually selected image. Replace it with an automatic match?')) return;
       force = true;
     }
     const original = btn.textContent;
     btn.disabled = true;
-    btn.textContent = 'Hämtar bild… (kan ta en stund)';
+    btn.textContent = 'Fetching image… (may take a moment)';
     try {
       await api('/api/units/' + unitId + '/fetch-image' + (force ? '?force=true' : ''), { method: 'POST' });
       await loadUnits();
     } catch (e) {
-      alert('Kunde inte hämta bild: ' + e.message);
+      alert('Could not fetch image: ' + e.message);
       btn.disabled = false;
       btn.textContent = original;
     }
@@ -886,7 +890,7 @@
       await api('/api/units/' + unitId + '/image', { method: 'DELETE' });
       await loadUnits();
     } catch (e) {
-      alert('Kunde inte ta bort bilden: ' + e.message);
+      alert('Could not remove the image: ' + e.message);
     }
   }
 
@@ -903,22 +907,22 @@
       const before = await api('/api/game-systems');
       const beforeMap = new Map(before.map((g) => [g.key, g.last_synced_at]));
       const res = await fetch('/api/sync', { method: 'POST' });
-      if (res.status === 409) { status.textContent = 'En synk körs redan…'; return; }
+      if (res.status === 409) { status.textContent = 'A sync is already running…'; return; }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       btn.disabled = true;
-      status.textContent = 'Synkar BSData…';
+      status.textContent = 'Syncing BSData…';
 
       const deadline = Date.now() + 2 * 60 * 1000;
       const poll = async () => {
         if (Date.now() > deadline) {
-          status.textContent = 'Synken pågår fortfarande i bakgrunden (kan ta ett tag vid en första klon).';
+          status.textContent = 'The sync is still running in the background (can take a while on a first clone).';
           btn.disabled = false;
           return;
         }
         const now = await api('/api/game-systems');
         const done = now.every((g) => g.last_synced_at !== beforeMap.get(g.key));
         if (done) {
-          status.textContent = 'Synk klar.';
+          status.textContent = 'Sync complete.';
           btn.disabled = false;
           await loadUnits();
           return;
@@ -928,7 +932,7 @@
       setTimeout(poll, 3000);
     } catch (e) {
       status.classList.add('is-error');
-      status.textContent = 'Synk misslyckades: ' + e.message;
+      status.textContent = 'Sync failed: ' + e.message;
       btn.disabled = false;
     }
   }
@@ -1059,7 +1063,7 @@
     initDialogDelegation();
     initViewDialog();
     loadUnits().catch((e) => {
-      document.getElementById('groups-container').innerHTML = `<p class="empty-state">Kunde inte läsa enheter: ${escapeHtml(e.message)}</p>`;
+      document.getElementById('groups-container').innerHTML = `<p class="empty-state">Could not load units: ${escapeHtml(e.message)}</p>`;
     });
   });
 })();

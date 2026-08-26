@@ -37,14 +37,14 @@ _sync_running = False
 @api_bp.app_errorhandler(404)
 def _api_aware_404(e):
     if request.path.startswith("/api/"):
-        return jsonify({"error": "Endpoint hittades inte"}), 404
+        return jsonify({"error": "Endpoint not found"}), 404
     return e
 
 
 @api_bp.app_errorhandler(500)
 def _api_aware_500(e):
     if request.path.startswith("/api/"):
-        return jsonify({"error": "Internt serverfel"}), 500
+        return jsonify({"error": "Internal server error"}), 500
     return e
 
 
@@ -68,7 +68,7 @@ def api_trigger_sync():
 
     with _sync_lock:
         if _sync_running:
-            return jsonify({"error": "En synk körs redan"}), 409
+            return jsonify({"error": "A sync is already running"}), 409
         _sync_running = True
 
     def _run():
@@ -92,7 +92,7 @@ def api_search_entries():
     system_key = request.args.get("system")
     query = request.args.get("q", "").strip()
     if system_key and system_key not in ("40k", "kill_team", "aos"):
-        return jsonify({"error": "system måste vara 40k, kill_team eller aos"}), 400
+        return jsonify({"error": "system must be 40k, kill_team, or aos"}), 400
     results = db.search_entries(system_key, query)
     return jsonify(results)
 
@@ -101,7 +101,7 @@ def api_search_entries():
 def api_get_entry(entry_id):
     entry = db.get_entry(entry_id)
     if not entry:
-        return jsonify({"error": "Entry hittades inte"}), 404
+        return jsonify({"error": "Entry not found"}), 404
     return jsonify(entry)
 
 
@@ -146,7 +146,7 @@ def _trigger_auto_image_fetch(unit):
             else:
                 db.mark_unit_image_checked(unit_id)
         except Exception as e:
-            print(f"[api] Automatisk bildmatchning misslyckades för enhet {unit_id}: {e}")
+            print(f"[api] Automatic image match failed for unit {unit_id}: {e}")
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -167,14 +167,14 @@ def api_fetch_unit_image(unit_id):
     primära kommunikationsvägen."""
     unit = db.get_unit(unit_id)
     if not unit:
-        return jsonify({"error": "Enheten hittades inte"}), 404
+        return jsonify({"error": "Unit not found"}), 404
     if unit.get("image_source") == "manual" and request.args.get("force") != "true":
         return jsonify({
-            "error": "Enheten har en manuellt vald bild. Skicka ?force=true för att ersätta den med en automatisk matchning.",
+            "error": "This unit has a manually selected image. Send ?force=true to replace it with an automatic match.",
             "manual_image": True,
         }), 409
     if not unit.get("entry_id") or not unit.get("system_key") or not unit.get("catalogue_name"):
-        return jsonify({"matched": False, "reason": "Ingen BSData-koppling"})
+        return jsonify({"matched": False, "reason": "No BSData link"})
 
     result = miniset_client.match_unit(
         system_key=unit["system_key"],
@@ -210,12 +210,12 @@ def api_set_unit_image_from_url(unit_id):
     miniset_client.fetch_product_image."""
     unit = db.get_unit(unit_id)
     if not unit:
-        return jsonify({"error": "Enheten hittades inte"}), 404
+        return jsonify({"error": "Unit not found"}), 404
 
     data = request.get_json(silent=True) or {}
     source_url = (data.get("source_url") or "").strip()
     if not source_url:
-        return jsonify({"error": "source_url krävs"}), 400
+        return jsonify({"error": "source_url is required"}), 400
 
     result = miniset_client.fetch_product_image(source_url)
     if result.get("error"):
@@ -231,7 +231,7 @@ def api_delete_unit_image(unit_id):
     uppladdat foto) — separata fält, se produktbeslutet i
     fas4-warasset-miniset-bilder.md."""
     if not db.get_unit(unit_id):
-        return jsonify({"error": "Enheten hittades inte"}), 404
+        return jsonify({"error": "Unit not found"}), 404
     db.clear_unit_image(unit_id)
     return jsonify(db.get_unit(unit_id))
 
@@ -242,7 +242,7 @@ def api_list_units():
     catalogue_name = request.args.get("catalogue") or request.args.get("faction")
     status = request.args.get("status")
     if status and status not in VALID_STATUSES:
-        return jsonify({"error": f"status måste vara en av {sorted(VALID_STATUSES)}"}), 400
+        return jsonify({"error": f"status must be one of {sorted(VALID_STATUSES)}"}), 400
     units = db.list_units(system_key=system_key, catalogue_name=catalogue_name, status=status)
     return jsonify(units)
 
@@ -251,7 +251,7 @@ def api_list_units():
 def api_get_unit(unit_id):
     unit = db.get_unit(unit_id)
     if not unit:
-        return jsonify({"error": "Enheten hittades inte"}), 404
+        return jsonify({"error": "Unit not found"}), 404
     return jsonify(unit)
 
 
@@ -270,24 +270,24 @@ def api_create_unit():
     entry_id = data.get("entry_id")
     name_override = (data.get("name_override") or "").strip() or None
     if not entry_id and not name_override:
-        return jsonify({"error": "entry_id eller name_override krävs"}), 400
+        return jsonify({"error": "entry_id or name_override is required"}), 400
     if entry_id is not None and not db.get_entry(entry_id):
-        return jsonify({"error": "entry_id pekar på en okänd BSData-post"}), 404
+        return jsonify({"error": "entry_id points to an unknown BSData entry"}), 404
 
     count = _validate_count(data.get("count", 1))
     if count is None:
-        return jsonify({"error": "count måste vara ett positivt heltal"}), 400
+        return jsonify({"error": "count must be a positive integer"}), 400
 
     status = data.get("status", "unbuilt")
     if status not in VALID_STATUSES:
-        return jsonify({"error": f"status måste vara en av {sorted(VALID_STATUSES)}"}), 400
+        return jsonify({"error": f"status must be one of {sorted(VALID_STATUSES)}"}), 400
 
     points_override = data.get("points_override")
     if points_override is not None:
         try:
             points_override = int(points_override)
         except (TypeError, ValueError):
-            return jsonify({"error": "points_override måste vara ett heltal"}), 400
+            return jsonify({"error": "points_override must be an integer"}), 400
 
     unit = db.create_unit(
         entry_id=entry_id,
@@ -304,7 +304,7 @@ def api_create_unit():
 @api_bp.route("/units/<int:unit_id>", methods=["PUT"])
 def api_update_unit(unit_id):
     if not db.get_unit(unit_id):
-        return jsonify({"error": "Enheten hittades inte"}), 404
+        return jsonify({"error": "Unit not found"}), 404
 
     data = request.get_json(silent=True) or {}
     fields = {}
@@ -312,7 +312,7 @@ def api_update_unit(unit_id):
     if "entry_id" in data:
         entry_id = data["entry_id"]
         if entry_id is not None and not db.get_entry(entry_id):
-            return jsonify({"error": "entry_id pekar på en okänd BSData-post"}), 404
+            return jsonify({"error": "entry_id points to an unknown BSData entry"}), 404
         fields["entry_id"] = entry_id
 
     if "name_override" in data:
@@ -321,7 +321,7 @@ def api_update_unit(unit_id):
     if "count" in data:
         count = _validate_count(data["count"])
         if count is None:
-            return jsonify({"error": "count måste vara ett positivt heltal"}), 400
+            return jsonify({"error": "count must be a positive integer"}), 400
         fields["count"] = count
 
     if "points_override" in data:
@@ -330,23 +330,23 @@ def api_update_unit(unit_id):
             try:
                 points_override = int(points_override)
             except (TypeError, ValueError):
-                return jsonify({"error": "points_override måste vara ett heltal"}), 400
+                return jsonify({"error": "points_override must be an integer"}), 400
         fields["points_override"] = points_override
 
     if "status" in data:
         if data["status"] not in VALID_STATUSES:
-            return jsonify({"error": f"status måste vara en av {sorted(VALID_STATUSES)}"}), 400
+            return jsonify({"error": f"status must be one of {sorted(VALID_STATUSES)}"}), 400
         fields["status"] = data["status"]
 
     if "photo_path" in data:
         fields["photo_path"] = data["photo_path"]
 
     if not fields:
-        return jsonify({"error": "Inga fält att uppdatera skickades"}), 400
+        return jsonify({"error": "No fields to update were sent"}), 400
     if "entry_id" in fields and fields["entry_id"] is None and "name_override" not in fields:
         current = db.get_unit(unit_id)
         if not current.get("name_override"):
-            return jsonify({"error": "Kan inte nolla entry_id utan att sätta name_override"}), 400
+            return jsonify({"error": "Cannot clear entry_id without also setting name_override"}), 400
 
     unit = db.update_unit(unit_id, **fields)
     _trigger_auto_image_fetch(unit)
@@ -356,7 +356,7 @@ def api_update_unit(unit_id):
 @api_bp.route("/units/<int:unit_id>", methods=["DELETE"])
 def api_delete_unit(unit_id):
     if not db.get_unit(unit_id):
-        return jsonify({"error": "Enheten hittades inte"}), 404
+        return jsonify({"error": "Unit not found"}), 404
     db.delete_unit(unit_id)
     return "", 204
 
@@ -369,15 +369,15 @@ def api_delete_unit(unit_id):
 def api_upload_unit_photo(unit_id):
     unit = db.get_unit(unit_id)
     if not unit:
-        return jsonify({"error": "Enheten hittades inte"}), 404
+        return jsonify({"error": "Unit not found"}), 404
 
     file = request.files.get("photo")
     if not file or not file.filename:
-        return jsonify({"error": "Ingen bildfil skickades"}), 400
+        return jsonify({"error": "No image file was sent"}), 400
 
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
-        return jsonify({"error": "Filtypen stöds inte (jpg/png/webp/gif)"}), 400
+        return jsonify({"error": "File type not supported (jpg/png/webp/gif)"}), 400
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     old_photo = unit.get("photo_path")
