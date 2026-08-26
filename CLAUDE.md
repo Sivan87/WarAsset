@@ -993,6 +993,127 @@ JS-runtime-fel (en enda loggad post var webbläsarens egen nätverks-
 statusloggning av det AVSIKTLIGT ogiltiga anropet, inte en kodkrasch).
 Alla testenheter raderade efteråt.
 
+## Fas 5 — Brand identity: logo, favicon, navbar (KLAR)
+
+Enda källan till varumärkesmärket är en referensbild Sivan tog fram själv
+(inget exporterat SVG/PNG-källmaterial finns): `C:\WarAsset\brand\
+warasset-brand-reference.png`. Kickoff-dokumentet ligger kvar som
+`fas5-warasset-brand-identity.md`. Märket är HANDBYGGT som inline SVG
+(hexagon-outline + 6 diamantformade "vertex nodes" + ett "WA"-monogram)
+genom att läsa av referensbilden — INGEN pixelmätning eller extern källfil,
+så en framtida justering bör börja om från samma referensbild, inte gissa
+sig fram från den här koden.
+
+- **Exakt geometri** (viewBox `0 0 100 100`, centrum 50,50, radie 42):
+  hexagonhörn `50,8 86.4,29 86.4,71 50,92 13.6,71 13.6,29` (pointy-top),
+  en 9×9 roterad kvadrat (`rotate(45)`) centrerad på VARJE hörn. Samma
+  koordinater återanvänds identiskt på tre ställen (måste hållas i synk
+  manuellt om märket justeras):
+  1. `templates/index.html` nav-logotypen (`.nav-logo-mark`) — inline
+     `<svg>` som ärver `var(--color-accent)`, samma mönster som den gamla
+     platshållar-hexagonen redan använde.
+  2. `static/img/favicon.svg` — en FRISTÅENDE SVG-fil (kan inte se sidans
+     CSS custom properties) på ett runt-hörnat mörkt kort
+     (`--color-surface`/#232532, matchar kickoff-dokumentets "neutral-800-
+     ish surface"-krav), så hexfärgen är hårdkodad `#9184d9`
+     (`--color-accent`s aktuella värde, se `nocturne.css`) — kommentaren i
+     filen påminner om att uppdatera den hårdkodade hexen om tokenet någonsin
+     ändras.
+  3. `static/img/favicon-16.png` / `favicon-32.png` /
+     `apple-touch-icon.png` — RENDERADE FRÅN `favicon.svg` (inte
+     handritade separat), se nedan.
+- **Accentfärg:** återanvänder `--color-accent` (`#9184d9`, oförändrad från
+  tidigare faser) rakt av — inget nytt hex hårdkodat i nav-varianten.
+- **Display-font:** Nocturnes `--font-heading` (Inter) går bara upp till
+  vikt 700, för lätt mot referensbildens tunga/kondenserade "WarAsset"-
+  wordmark och WA-monogram. Löst med en NY, egen `@import` i `app.css`
+  (INTE i `nocturne.css`, som ska förbli en oförändrad kopia av
+  designsystemet) av Google Fonts "Archivo Black" (en enda, redan mycket
+  tung vikt) och en ny token `--font-display`, använd bara av
+  `.nav-logo-mono`/`.nav-logo-word*` — resten av UI:t rör Inter/
+  `--font-heading` inte alls.
+- **Wordmark-lockup:** "War" i `var(--color-text)` (vitt), "Asset" i
+  `var(--color-accent)` — samma mönster som `.tag-accent` redan använder
+  för att lyfta fram en del av ett sammansatt ord. Den gamla
+  "Miniature Registry"-undertexten under "WarAsset" togs bort — referensens
+  båda navbar-exempel visar bara ikon+wordmark, ingen undertext.
+
+### Favicon/app-ikon-rendering
+
+Ingen bildbehandlingsbibliotek finns installerat (varken i `.venv` eller i
+Docker-imagen, se `requirements.txt`/`Dockerfile` — bara Flask/requests/
+beautifulsoup4/rapidfuzz). Löst genom att återanvända samma
+Playwright-verktyg som redan används ad hoc för UI-testning i varje
+tidigare fas: `scripts/render_favicons.js` (nytt, committat i repot för
+spårbarhet/reproducerbarhet, men INTE en del av Docker-bygget/körningen —
+ett engångs-dev-verktyg, `node_modules` följer inte med) laddar
+`static/img/favicon.svg` som en data-URI i en headless Chromium-sida och
+skärmdumpar den vid 16×16, 32×32 och 180×180 (apple-touch-icon-standard),
+sparade som `static/img/favicon-{16,32}.png` och
+`static/img/apple-touch-icon.png`. Kräver `npm install playwright` +
+`npx playwright install chromium` i en scratch-mapp (samma kommandon som
+redan dokumenterats i tidigare fasers CLAUDE.md-avsnitt), sedan
+`node render_favicons.js` från `scripts/`-mappen.
+
+**OBS, känd XML-fälla:** en `<!-- -->`-kommentar i en SVG-fil (SVG är XML)
+FÅR INTE innehålla dubbla bindestreck (`--`) — ett första utkast av
+`favicon.svg`s huvudkommentar refererade till `--color-accent` och
+`--color-surface` och gjorde HELA filen oparsbar (Chromium renderade en
+trasig-bild-platshållare istället för märket, `naturalWidth: 0`, inte ett
+tydligt felmeddelande förrän kommentaren isolerades och testades separat
+via `page.goto(dataUri)` och läste XML-parserns felmeddelande direkt).
+Kommentaren skriver nu ut tokennamnen utan ledande `--` för att undvika
+detta.
+
+`templates/index.html`s `<head>` har fyra ikon-taggar: `<link rel="icon"
+type="image/svg+xml">` (modern webbläsare, skalar perfekt), två
+`<link rel="icon" type="image/png" sizes="...">`-fallbacks (16/32) för
+webbläsare utan SVG-favicon-stöd, och `<link rel="apple-touch-icon">`
+(kräver PNG — Safari stödjer inte SVG apple-touch-icon).
+
+### Navbar — expanderad/kompakt (brytpunkt 768px)
+
+Importerad från referensbildens två "NAVBAR EXAMPLE"-paneler
+(expanded/compact). Ny struktur i `templates/index.html`s `<nav id=
+"site-nav">`: `.nav-logo` → `.nav-search` (nu med ett förstoringsglas-ikon
+inbäddat, `.nav-search-icon`, som referensbilden visar) → `.nav-filters`
+(samma `#system-filter-seg` som förut, bara omdöpt klass) →
+`.nav-actions` (sync-status/sync-knapp/lägg till-knapp, grupperade i en ny
+`<div>` istället för lösa syskon-element) → `.nav-compact-toggle` (två nya
+knappar, `#nav-search-toggle`/`#nav-menu-toggle`, sök- resp.
+hamburgerikon).
+
+**Samma DOM-noder återanvänds i båda lägena — inget dupliceras.** Under
+768px (`@media (max-width: 768px)` i `app.css`) döljs `.nav-search`/
+`.nav-filters`/`.nav-actions` som CSS-default, och `.nav-compact-toggle`
+visas istället. `initNav()` i `app.js` togglar bara `.is-search-open`/
+`.is-menu-open` på `#site-nav` (ömsesidigt uteslutande — att öppna den ena
+stänger den andra); CSS:en för dessa klasser sätter `display:flex; order:
+10; flex-basis:100%` på respektive block så det droppar ner på en egen rad
+INUTI samma nav (kräver `.nav { flex-wrap: wrap }`, som saknades i
+`nocturne.css` och lades till i `app.css` — ofarligt vid normal bredd
+eftersom inget behöver radbrytas där ändå). Verifierat med Playwright vid
+flera bredder (375/700/768/769/800px): ingen horisontell overflow
+(`scrollWidth - clientWidth === 0`) vid någon av dem, och alla fyra lägen
+(brett, smalt-stängt, smalt-meny-öppen, smalt-sök-öppen) renderar exakt
+som referensbildens två exempel, inga konsolfel.
+
+Ingen ändring behövdes i toolbaren (Grid/List-toggle, Sort/Type-väljarna,
+under stat-banden) — den överlappar inte navets `#system-filter-seg`
+(spelsystem-filter) eller de nya kompakta togglarna, redan bekräftat i
+tidigare layoutfixar (2026-08-26-avsnittet ovan).
+
+### Kvar att göra: Sivan bör granska mot referensbilden
+
+Byggt HELT från en referensBILD (ingen exporterad källfil), så proportioner/
+vikt/spacing kan avvika något från vad Sivan egentligen avsåg — särskilt
+WA-monogrammets bokstavs-"sammanflätning" (implementerad som tät negativ
+letter-spacing i `--font-display`-text, INTE riktiga sammanslagna
+bokstavsformer/ligaturer, vilket referensbilden antyder med en delad
+stroke mellan W och A). Granska livemiljön mot
+`C:\WarAsset\brand\warasset-brand-reference.png` och flagga allt som inte
+matchar tillräckligt nära för en uppföljningsomgång.
+
 ## UI-språk: engelska (ändrat 2026-08-26)
 
 UI:t (`templates/index.html`, alla text-strängar i `static/js/app.js`) och

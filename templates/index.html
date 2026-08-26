@@ -4,42 +4,66 @@
   <meta charset="utf-8">
   <title>WarAsset</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,4 26.4,10 26.4,22 16,28 5.6,22 5.6,10' fill='none' stroke='%239184d9' stroke-width='2'/%3E%3Crect x='13' y='13' width='6' height='6' fill='%239184d9' transform='rotate(45 16 16)'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='img/favicon-16.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/nocturne.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
 
-  <nav class="nav container">
+  <nav class="nav container" id="site-nav">
     <div class="nav-logo">
-      <svg class="nav-logo-mark" width="30" height="30" viewBox="0 0 32 32" fill="none">
-        <polygon points="16,4 26.4,10 26.4,22 16,28 5.6,22 5.6,10" stroke="var(--color-accent)" stroke-width="1.5"/>
-        <line x1="16" y1="0" x2="16" y2="5" stroke="var(--color-accent)" stroke-width="1.5"/>
-        <line x1="16" y1="27" x2="16" y2="32" stroke="var(--color-accent)" stroke-width="1.5"/>
-        <line x1="0" y1="16" x2="5" y2="16" stroke="var(--color-accent)" stroke-width="1.5"/>
-        <line x1="27" y1="16" x2="32" y2="16" stroke="var(--color-accent)" stroke-width="1.5"/>
-        <rect x="13.5" y="13.5" width="5" height="5" fill="var(--color-accent)" transform="rotate(45 16 16)"/>
+      <svg class="nav-logo-mark" width="34" height="34" viewBox="0 0 100 100" fill="none" aria-hidden="true">
+        <polygon points="50,8 86.4,29 86.4,71 50,92 13.6,71 13.6,29" stroke="var(--color-accent)" stroke-width="4"/>
+        <rect width="9" height="9" fill="var(--color-accent)" transform="translate(50,8) rotate(45) translate(-4.5,-4.5)"/>
+        <rect width="9" height="9" fill="var(--color-accent)" transform="translate(86.4,29) rotate(45) translate(-4.5,-4.5)"/>
+        <rect width="9" height="9" fill="var(--color-accent)" transform="translate(86.4,71) rotate(45) translate(-4.5,-4.5)"/>
+        <rect width="9" height="9" fill="var(--color-accent)" transform="translate(50,92) rotate(45) translate(-4.5,-4.5)"/>
+        <rect width="9" height="9" fill="var(--color-accent)" transform="translate(13.6,71) rotate(45) translate(-4.5,-4.5)"/>
+        <rect width="9" height="9" fill="var(--color-accent)" transform="translate(13.6,29) rotate(45) translate(-4.5,-4.5)"/>
+        <text class="nav-logo-mono" x="50" y="58" text-anchor="middle" fill="#fff">WA</text>
       </svg>
-      <div>
-        <div class="nav-logo-title">WarAsset</div>
-        <div class="nav-logo-sub">Miniature Registry</div>
-      </div>
+      <div class="nav-logo-word"><span class="nav-logo-word-war">War</span><span class="nav-logo-word-asset">Asset</span></div>
     </div>
 
     <div class="nav-search field">
-      <input id="search-input" class="input" type="text" placeholder="Search unit…" autocomplete="off">
+      <svg class="nav-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/>
+        <line x1="11.2" y1="11.2" x2="15" y2="15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <input id="search-input" class="input" type="text" placeholder="Search units…" autocomplete="off">
     </div>
 
-    <div class="seg" id="system-filter-seg">
+    <div class="seg nav-filters" id="system-filter-seg">
       <label class="seg-opt"><input type="radio" name="sysfilter" value="all" checked> All</label>
       <label class="seg-opt"><input type="radio" name="sysfilter" value="40k"> 40k</label>
       <label class="seg-opt"><input type="radio" name="sysfilter" value="kill_team"> Kill Team</label>
       <label class="seg-opt"><input type="radio" name="sysfilter" value="aos"> AoS</label>
     </div>
 
-    <span id="sync-status" class="sync-status"></span>
-    <button id="sync-btn" type="button" class="btn btn-ghost">Sync BSData</button>
-    <button id="add-btn" type="button" class="btn btn-primary">+ New unit</button>
+    <div class="nav-actions">
+      <span id="sync-status" class="sync-status"></span>
+      <button id="sync-btn" type="button" class="btn btn-ghost">Sync BSData</button>
+      <button id="add-btn" type="button" class="btn btn-primary">+ New unit</button>
+    </div>
+
+    <div class="nav-compact-toggle">
+      <button type="button" class="btn btn-secondary btn-icon" id="nav-search-toggle" aria-label="Toggle search">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.4"/>
+          <line x1="11.2" y1="11.2" x2="15" y2="15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button type="button" class="btn btn-secondary btn-icon" id="nav-menu-toggle" aria-label="Toggle menu">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <line x1="2" y1="4.5" x2="14" y2="4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <line x1="2" y1="11.5" x2="14" y2="11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
   </nav>
 
   <div class="stat-band">

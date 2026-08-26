@@ -954,6 +954,20 @@
     });
     document.getElementById('sync-btn').addEventListener('click', triggerSync);
     document.getElementById('add-btn').addEventListener('click', openAddDialog);
+
+    // Fas 5: compact navbar (<768px, see app.css) collapses the search field
+    // and the filter/sync/add row behind two icon buttons — both toggles
+    // just flip a class on the nav itself; the search field and filter pills
+    // are the same DOM nodes used at wide viewports, never duplicated.
+    const nav = document.getElementById('site-nav');
+    document.getElementById('nav-search-toggle').addEventListener('click', () => {
+      nav.classList.remove('is-menu-open');
+      nav.classList.toggle('is-search-open');
+    });
+    document.getElementById('nav-menu-toggle').addEventListener('click', () => {
+      nav.classList.remove('is-search-open');
+      nav.classList.toggle('is-menu-open');
+    });
   }
 
   function initToolbar() {

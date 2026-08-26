@@ -1,0 +1,27 @@
+<!--
+  Fas 5 brand mark, rendered as a standalone favicon SVG. Rebuilt by hand
+  from C:\WarAsset\brand\warasset-brand-reference.png (no source design file
+  exists, that reference image is the source of truth). Colors are hardcoded
+  copies of Nocturne's color-accent (#9184d9) and color-surface (#232532)
+  tokens, not CSS var() references: a standalone SVG loaded via
+  link rel="icon" has no access to the host page's CSS custom properties
+  (unlike the inline svg duplicate of this mark in templates/index.html's
+  nav, which does use var(color-accent) and inherits the page's theme).
+  If the accent token in static/css/nocturne.css ever changes, update the
+  hardcoded hex values here (and in favicon-16.png/favicon-32.png/
+  apple-touch-icon.png, rendered from this file by scripts/render_favicons.js)
+  to match.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <rect x="0" y="0" width="120" height="120" rx="26" fill="#232532"/>
+  <g transform="translate(10,10)">
+    <polygon points="50,8 86.4,29 86.4,71 50,92 13.6,71 13.6,29" fill="none" stroke="#9184d9" stroke-width="4.5"/>
+    <rect width="9" height="9" fill="#9184d9" transform="translate(50,8) rotate(45) translate(-4.5,-4.5)"/>
+    <rect width="9" height="9" fill="#9184d9" transform="translate(86.4,29) rotate(45) translate(-4.5,-4.5)"/>
+    <rect width="9" height="9" fill="#9184d9" transform="translate(86.4,71) rotate(45) translate(-4.5,-4.5)"/>
+    <rect width="9" height="9" fill="#9184d9" transform="translate(50,92) rotate(45) translate(-4.5,-4.5)"/>
+    <rect width="9" height="9" fill="#9184d9" transform="translate(13.6,71) rotate(45) translate(-4.5,-4.5)"/>
+    <rect width="9" height="9" fill="#9184d9" transform="translate(13.6,29) rotate(45) translate(-4.5,-4.5)"/>
+    <text x="50" y="58" text-anchor="middle" fill="#ffffff" font-family="'Archivo Black', Arial, sans-serif" font-size="30" letter-spacing="-1.5">WA</text>
+  </g>
+</svg>

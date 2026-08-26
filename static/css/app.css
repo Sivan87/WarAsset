@@ -2,6 +2,16 @@
    använder Nocturne-tokens (var(--color-*)/var(--space-*)/var(--radius-*))
    istället för hårdkodade värden, se readme.md i _ds/-mappen. */
 
+/* Fas 5: brand mark — en tyngre, kondenserad display-font enbart för
+   WA-monogrammet och "WarAsset"-wordmarken (Inters tyngsta vikt, 700, blev
+   för lätt mot referensbilden C:\WarAsset\brand\warasset-brand-reference.png).
+   Egen @import här istället för att röra nocturne.css, som ska förbli en
+   oförändrad kopia av designsystemet. */
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap');
+:root {
+  --font-display: "Archivo Black", var(--font-heading), sans-serif;
+}
+
 body { padding-bottom: var(--space-8); }
 
 /* nocturne.css sets .dialog-backdrop{display:grid}, which (being an author
@@ -13,14 +23,50 @@ body { padding-bottom: var(--space-8); }
 .container { max-width: 1160px; margin: 0 auto; padding-inline: var(--space-6); }
 
 /* — nav — */
-.nav-search { position: relative; width: 240px; }
-.nav-logo { display: flex; align-items: center; gap: var(--space-3); margin-right: auto; }
+/* Fas 5: brand mark (hexagon + 6 vertex diamonds + "WA" monogram), rebuilt
+   from C:\WarAsset\brand\warasset-brand-reference.png — no source design
+   file exists, this SVG (also duplicated, with hardcoded colors, as the
+   standalone static/img/favicon.svg since a linked/standalone SVG can't see
+   the page's CSS custom properties) IS the source of truth going forward.
+   nav-logo-mono uses --font-display (see top of file) at font-weight 400 —
+   Archivo Black only ships one (already very heavy) weight. */
+.nav-logo-mono { font-family: var(--font-display); font-size: 30px; letter-spacing: -0.04em; }
+.nav-logo { display: flex; align-items: center; gap: var(--space-3); }
 .nav-logo-mark { flex: none; }
-.nav-logo-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; line-height: 1.1; letter-spacing: -0.01em; }
-.nav-logo-sub { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
+.nav-logo-word { font-family: var(--font-display); font-size: 19px; line-height: 1; letter-spacing: -0.01em; white-space: nowrap; }
+.nav-logo-word-war { color: var(--color-text); }
+.nav-logo-word-asset { color: var(--color-accent); }
+
+.nav-search { position: relative; width: 240px; }
+.nav-search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: color-mix(in srgb, var(--color-text) 45%, transparent); pointer-events: none; }
+.nav-search .input { padding-left: 30px; }
+.nav-filters { flex: none; }
+.nav-actions { display: flex; align-items: center; gap: var(--space-3); margin-left: auto; }
+.nav-compact-toggle { display: none; gap: var(--space-2); margin-left: auto; }
+
+/* nocturne.css's .nav has no flex-wrap — needed so the compact search/menu
+   panels (order:10/11, flex-basis:100% below) actually drop to a new row
+   inside the nav instead of overflowing it. Harmless at normal widths since
+   nothing needs to wrap there. */
+.nav { flex-wrap: wrap; }
 
 .sync-status { font-size: 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); white-space: nowrap; }
 .sync-status.is-error { color: var(--color-neutral-300); }
+
+/* Fas 5: compact navbar (icon+wordmark, then just a search-toggle and a
+   hamburger-toggle button) below ~768px, matching the reference image's
+   "navbar example (compact)" panel. Single DOM nodes for the search field
+   and the filter pills — only their layout/visibility changes at this
+   breakpoint, they're never duplicated markup (see #nav-search-toggle /
+   #nav-menu-toggle handlers in app.js, which toggle .is-search-open /
+   .is-menu-open on #site-nav). */
+@media (max-width: 768px) {
+  .nav-search, .nav-filters, .nav-actions { display: none; }
+  .nav-compact-toggle { display: flex; margin-left: auto; }
+  .nav.is-search-open .nav-search { display: block; order: 10; flex-basis: 100%; }
+  .nav.is-menu-open .nav-filters { display: flex; order: 10; flex-basis: 100%; flex-wrap: wrap; }
+  .nav.is-menu-open .nav-actions { display: flex; order: 11; flex-basis: 100%; flex-wrap: wrap; }
+}
 
 /* — stat band — */
 /* Constrained to the same width as .container (nav/toolbar/groups) instead
