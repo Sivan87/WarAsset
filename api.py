@@ -142,7 +142,7 @@ def _trigger_auto_image_fetch(unit):
                 system_key=system_key, catalogue_name=catalogue_name, entry_name=entry_name, role=role
             )
             if result.get("matched"):
-                db.set_unit_image(unit_id, result["image_url"], result["image_source_url"])
+                db.set_unit_image(unit_id, result["image_url"], result["image_source_url"], source="auto")
             else:
                 db.mark_unit_image_checked(unit_id)
         except Exception as e:
@@ -158,10 +158,21 @@ def api_fetch_unit_image(unit_id):
     explicita handlingen — svarar när matchningen är klar, kan ta upp till
     ~30 sekunder pga rate-limitet mot miniset.net (se miniset_client.py).
     Ignorerar image_checked_at-cachen medvetet (till skillnad från
-    auto-triggern): en manuell begäran ska alltid försöka igen."""
+    auto-triggern): en manuell begäran ska alltid försöka igen.
+
+    Fas 4b: en enhet med en manuellt vald bild (image_source == "manual",
+    se api_set_unit_image_from_url) skrivs INTE över av misstag — kräver
+    ?force=true. UI:t frågar användaren INNAN det anropet görs (se
+    fetchUnitImage i app.js), så den här 409:an är ett skyddsnät, inte den
+    primära kommunikationsvägen."""
     unit = db.get_unit(unit_id)
     if not unit:
         return jsonify({"error": "Enheten hittades inte"}), 404
+    if unit.get("image_source") == "manual" and request.args.get("force") != "true":
+        return jsonify({
+            "error": "Enheten har en manuellt vald bild. Skicka ?force=true för att ersätta den med en automatisk matchning.",
+            "manual_image": True,
+        }), 409
     if not unit.get("entry_id") or not unit.get("system_key") or not unit.get("catalogue_name"):
         return jsonify({"matched": False, "reason": "Ingen BSData-koppling"})
 
@@ -172,7 +183,7 @@ def api_fetch_unit_image(unit_id):
         role=unit.get("role"),
     )
     if result.get("matched"):
-        db.set_unit_image(unit_id, result["image_url"], result["image_source_url"])
+        db.set_unit_image(unit_id, result["image_url"], result["image_source_url"], source="auto")
     else:
         db.mark_unit_image_checked(unit_id)
 
@@ -182,6 +193,31 @@ def api_fetch_unit_image(unit_id):
         "image_url": updated.get("image_url"),
         "image_source_url": updated.get("image_source_url"),
     })
+
+
+@api_bp.route("/units/<int:unit_id>/image-from-url", methods=["POST"])
+def api_set_unit_image_from_url(unit_id):
+    """Fas 4b: manuell bildlänk (se fas4b-warasset-manuell-bildlank.md) för
+    de edge-cases automatisk matchning inte kan lösa (flera "sculpts" av
+    samma enhet, en hjälte bara såld i ett multi-hjälte-set). Fungerar
+    oavsett om enheten har en entry_id eller inte — länken pekar direkt på
+    en produktsida, ingen fraktion/roll behövs för att hitta den, till
+    skillnad från den automatiska matchningen."""
+    unit = db.get_unit(unit_id)
+    if not unit:
+        return jsonify({"error": "Enheten hittades inte"}), 404
+
+    data = request.get_json(silent=True) or {}
+    source_url = (data.get("source_url") or "").strip()
+    if not source_url:
+        return jsonify({"error": "source_url krävs"}), 400
+
+    result = miniset_client.fetch_product_image(source_url)
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), 400
+
+    updated = db.set_unit_image(unit_id, result["image_url"], source_url, source="manual")
+    return jsonify(updated)
 
 
 @api_bp.route("/units/<int:unit_id>/image", methods=["DELETE"])

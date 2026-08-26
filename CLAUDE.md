@@ -6,13 +6,15 @@ Unraid, öppet på det interna hemnätverket utan inloggning — samma mönster
 som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
 **Status: Fas 1 (grunddatabas + BSData-synk + API), Fas 2 (UI), Fas 3
-(enhetsdetalj/datasheet-vy) och Fas 4 (referensbilder från miniset.net) är
-ALLA KLARA.** Kickoff-dokumenten ligger kvar i repot:
-`fas1-warasset-grunddata-bsdata.md` (backend), `fas1b-warasset-deploy.md`
-(GitHub-koppling + deploy), `fas2-warasset-ui.md` (UI),
-`fas3-warasset-stats-popover.md` (enhetsdetalj — filnamnet nämner "popover"
-men den UI:t landade på är en fullstor dialog, se nedan) och
-`fas4-warasset-miniset-bilder.md` (referensbilder).
+(enhetsdetalj/datasheet-vy), Fas 4 (referensbilder från miniset.net) och
+Fas 4b (manuell bildlänk) är ALLA KLARA.** Kickoff-dokumenten ligger kvar
+i repot: `fas1-warasset-grunddata-bsdata.md` (backend),
+`fas1b-warasset-deploy.md` (GitHub-koppling + deploy), `fas2-warasset-ui.md`
+(UI), `fas3-warasset-stats-popover.md` (enhetsdetalj — filnamnet nämner
+"popover" men den UI:t landade på är en fullstor dialog, se nedan),
+`fas4-warasset-miniset-bilder.md` (referensbilder) och
+`fas4b-warasset-manuell-bildlank.md` (manuell bildlänk för de fall den
+automatiska matchningen inte kan lösa).
 
 ## Produktbeslut
 
@@ -805,3 +807,166 @@ Skärmdump tagen och granskad visuellt (korrekt bildvisning, läsbar
 källänk, knapparna radbryter snyggt när båda visas). Alla testenheter
 raderade efteråt (`DELETE /api/units/<id>`) — databasen lämnad i samma
 skick som innan testningen.
+
+## Fas 4b — Manuell bildlänk från miniset.net (KLAR)
+
+Fas 4:s automatiska matchning löser majoriteten av fallen, men två typer av
+tvetydiga edge-cases går inte att lösa algoritmiskt — bara Sivan vet vilken
+bild som är "rätt":
+
+1. **Flera "sculpts"/utgåvor av samma enhet** (t.ex. Plague Marines finns i
+   flera produktversioner på miniset.net — den automatiska matchningen tar
+   den första/bästa fuzzy-träffen, inte nödvändigtvis den nyaste utgåvan).
+2. **Hjältar sålda i multi-hjälte-set** — verifierat konkret exempel:
+   `Malignant Plaguecaster` (BSData, Death Guard) säljs inte som egen box,
+   utan som en av tre hjältar i setet "Chosen of Mortarion"
+   (`gw-99120102114`). Automatisk NAMNmatchning hittar aldrig det sambandet
+   eftersom BSData ser tre separata enheter medan miniset.net bara har EN
+   produktsida för hela setet.
+
+Lösningen: ett textfält i redigera-enhet-dialogen där Sivan själv klistrar
+in länken till rätt produktsida, istället för att förlita sig på
+namnmatchning. Kickoff-dokumentet ligger kvar som
+`fas4b-warasset-manuell-bildlank.md`.
+
+### Datamodell — `image_source`
+
+Ny nullable kolumn på `collection_units`: `image_source` (`'auto'` /
+`'manual'` / `NULL`). Styr om en bild är SKYDDAD från att skrivas över av
+en framtida automatisk om-matchning:
+
+- `'auto'` — satt av `miniset_client.match_unit()` (Fas 4:s vanliga flöde,
+  både auto-triggern vid spara och den manuella "Hämta/matcha om
+  bild"-knappen). Får skrivas över fritt av en ny automatisk matchning.
+- `'manual'` — satt av `POST /api/units/<id>/image-from-url` (Fas 4b).
+  Skyddad: `POST .../fetch-image` vägrar skriva över den utan en explicit
+  `?force=true`, och UI:t frågar användaren INNAN det anropet ens görs
+  (se "API"/"UI" nedan) — båda skyddsnivåerna implementerade samtidigt,
+  inte bara en av de två alternativ kickoff-dokumentet gav fritt val
+  mellan.
+- `NULL` — ingen bild alls, eller en bild som nollställts via
+  `DELETE /api/units/<id>/image` (`database.clear_unit_image` nollställer
+  `image_source` tillsammans med `image_url`/`image_source_url`/
+  `image_checked_at` — "aldrig kontrollerad" igen, inte "kontrollerad,
+  ingen träff").
+
+`database._migrate_add_collection_units_image_fields` (samma funktion som
+Fas 4, inte en ny) kontrollerar nu VARJE bildkolumn oberoende av de andra
+(inte bara "saknas `image_url`") — annars hade en databas som redan körde
+Fas 4 (som har `image_url`/`image_source_url`/`image_checked_at` men inte
+`image_source`) aldrig fått den nya kolumnen tillagd, eftersom den gamla
+kollen bara testade `image_url`. Verifierat mot både en helt ny databas
+och den riktiga, redan Fas 4-migrerade utvecklings-/produktions-databasen.
+
+### Bildextraktion från en enskild produktsida — vad som återanvändes och vad som INTE gick
+
+Kickoff-dokumentet bad om att återanvända Fas 4:s bildextraktionslogik
+istället för att skriva en ny parser. Verifierat live att en PRODUKTSIDA
+(`/sets/<id>`) har en ANNAN DOM-struktur än en LISTNINGSSIDA
+(`/sets/games-workshop/<spellinje>/<fraktion>`, som Fas 4:s
+`_parse_category_page` redan visste hur man tolkade): en produktsida har
+INGEN `div.set-<id>`/`div.gallery_title`-wrapper (den wrappern finns bara
+när flera produkter listas sida vid sida i ett galleri) — bara en rå
+samling `<a class="colorbox">`-länkar för produktens egna bilder, där den
+FÖRSTA (`-0.<ext>`-filen) är huvudbilden, samma konvention som
+listningssidans "-0"-bild. Lösningen: bryt ut den gemensamma, ÅTERANVÄNDA
+primitiven (`miniset_client._colorbox_image_url(scope)` — "hitta
+originalbilden i ett `a.colorbox`-element") ur `_parse_category_page`, och
+använd samma primitiv i den nya `fetch_product_image()` — bara den
+OMKRINGLIGGANDE sidparsningen är ny (och den är trivial: hela produktsidan
+är `scope`, ingen loop över flera block behövs), inte
+bildextraktionslogiken i sig.
+
+### API
+
+- `POST /api/units/<id>/image-from-url` (`api_set_unit_image_from_url`) —
+  body `{"source_url": "https://miniset.net/sets/..."}`.
+  - **URL-validering** (`miniset_client.is_miniset_product_url`): kräver
+    `http(s)://miniset.net/sets/<id>` eller `www.miniset.net`, exakt
+    domänjämförelse via `urlparse().netloc` (INTE en substrängs-koll —
+    verifierat att `https://miniset.net.evil.com/sets/x` och
+    `https://evil.com/miniset.net/sets/x` båda korrekt avvisas). Avvisar
+    också giltiga miniset.net-URL:er av fel TYP (en listningssida, en rå
+    bildfils-URL under `/files/...`) — bara `/sets/<id>` accepteras.
+  - Går igenom SAMMA globala rate-limit-lås som `match_unit()`
+    (`_rate_limited_get`, delad funktion — ingen egen låslogik i den nya
+    koden).
+  - Sparar `image_url` (från `fetch_product_image`), `image_source_url`
+    (= den inklistrade länken rakt av) och `image_source = 'manual'` via
+    `database.set_unit_image(..., source="manual")`.
+  - Fel (ogiltig URL, nätverksfel, 404, ingen bild hittad på sidan) →
+    tydligt `{"error": "..."}` med `400`, ALDRIG en tyst no-op — verifierat
+    för en icke-miniset.net-URL och en tom `source_url`.
+- `POST /api/units/<id>/fetch-image` (Fas 4, oförändrad signatur) — utökad
+  med ett skydd: om enheten har `image_source == "manual"` och anropet
+  saknar `?force=true`, svarar den `409` med ett tydligt felmeddelande
+  istället för att matcha om. UI:t (se nedan) frågar redan användaren
+  INNAN det här anropet görs, så 409:an är ett skyddsnät i botten, inte
+  den primära kommunikationsvägen.
+  - **Verifierat beteende värt att notera:** om `?force=true` skickas men
+    den automatiska matchningen INTE hittar något (`mark_unit_image_checked`
+    körs, som bara sätter `image_checked_at` — rör aldrig `image_url`/
+    `image_source_url`/`image_source`), överlever den manuella bilden
+    OFÖRÄNDRAD. Den skrivs bara över om en NY automatisk matchning
+    faktiskt hittas. Inte explicit designat så från början, men ett
+    naturligt (och önskvärt) resultat av att `mark_unit_image_checked`
+    redan bara rörde `image_checked_at` i Fas 4.
+- `GET /api/units`/`GET /api/units/<id>` — ingen kodändring, `image_source`
+  följer med automatiskt via `collection_units.*`.
+
+### UI (`static/js/app.js`, `static/css/app.css`)
+
+- **Redigera-enhet-dialogen:** ett nytt fält "Länk till rätt bild
+  (miniset.net)" + en "Hämta"-knapp (`imageLinkRowHtml`/`fetchManualImage`
+  i `app.js`), synligt i BÅDA lägena (sök OCH anpassad — till skillnad
+  från fotouppladdning som bara är kopplad till redigeringsläget generellt
+  gäller det här också för anpassade enheter, eftersom en manuell länk
+  inte behöver fraktion/roll för att fungera). Kräver ett existerande
+  unit-id precis som fotouppladdning. Sparar OMEDELBART (samma mönster som
+  `uploadPhoto`) — oberoende av dialogens egen "Spara"-knapp, med en
+  förhandsvisning av den hämtade bilden direkt i dialogen (`.image-link-
+  preview`) plus en badge ("📌 Manuellt vald" / "Auto-matchad") som visar
+  `image_source`.
+- **Enhetskortet:** `unitPhotoHtml` lägger till en 📌-prefix på
+  "Bild: miniset.net"-krediten samt en förklarande `title`-tooltip när
+  `image_source === 'manual'` — samma kredit-länk och plats som Fas 4,
+  bara en tydligare markering.
+- **"Matcha om bild"-knappen** (samma knapp som Fas 4, ingen ny knapp)
+  frågar nu `window.confirm(...)` INNAN anropet görs om enheten har en
+  manuell bild, och skickar i så fall `?force=true` bara om användaren
+  bekräftar — kickoff-dokumentet gav fritt val mellan att vägra på
+  serversidan ELLER kommunicera tydligt i UI:t; båda implementerades.
+  "Ta bort bild"-knappen visas nu för ALLA enheter med `image_url` (inte
+  bara BSData-länkade) eftersom en anpassad enhet kan ha en manuellt länkad
+  bild men aldrig en `fetch-image`-knapp (ingen fraktion att auto-matcha
+  mot).
+
+### Testat (Playwright + curl, samma improviserade uppsättning som Fas 2-4)
+
+Curl mot en lokalt körande `python app.py`: `POST .../image-from-url` med
+den riktiga "Chosen of Mortarion"-länken (`gw-99120102114`, hittad via
+webbsökning eftersom miniset.nets egen sökfunktion inte fungerar, se Fas 4)
+för `Malignant Plaguecaster` → `image_source: "manual"` sparat korrekt,
+trots att den automatiska matchningen precis innan (samma testenhet)
+korrekt hade misslyckats (`mark_unit_image_checked`, ingen falsk träff
+tvingad fram); `POST .../fetch-image` UTAN `force` på samma enhet → `409`
+med tydligt felmeddelande; `POST .../fetch-image?force=true` → `200`,
+`matched: false`, men den manuella bilden overifierat oförändrad
+efteråt (se ovan); ogiltig URL (`https://example.com/...`) och tom
+`source_url` → båda `400` med tydliga felmeddelanden, ingen krasch.
+Playwright (ny `npm install playwright` + `npx playwright install
+chromium`-körning i scratchpad, samma improviserade uppsättning som
+tidigare faser) körd i en riktig webbläsare mot samma server: 📌-markering
+och tooltip synliga på ett manuellt länkat enhetskort; redigera-dialogen
+visar rätt badge ("📌 Manuellt vald") och förhandsvisning; klick på
+"Matcha om bild" på en manuell bild triggar ett `confirm()`-dialogruta
+(fångad och bekräftad i testet) INNAN något nätverksanrop görs; bilden
+finns kvar efter en bekräftad men resultatlös tvingad om-matchning;
+klistra in en ny, giltig miniset.net-länk i dialogens textfält → korrekt
+förhandsvisning och badge uppdaterade; klistra in en ogiltig länk → tydligt
+felmeddelande visat i dialogen, ingen krasch. Skärmdump tagen och granskad
+visuellt: båda testenheterna (Plague Marines, Malignant Plaguecaster) visar
+korrekta, olika produktbilder med 📌-markeringen synlig och läsbar. Inga
+JS-runtime-fel (en enda loggad post var webbläsarens egen nätverks-
+statusloggning av det AVSIKTLIGT ogiltiga anropet, inte en kodkrasch).
+Alla testenheter raderade efteråt.

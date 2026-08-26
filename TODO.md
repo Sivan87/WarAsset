@@ -243,3 +243,39 @@ uppsättning som Fas 2/3, samt manuella `curl`-anrop mot ett riktigt körande
   måste matchas individuellt, antingen automatiskt vid spara eller via
   "Hämta/matcha om bild"-knappen.
 - **Ingen ny run-skill** genererad — samma öppna punkt som Fas 2/3.
+
+## Fas 4b (manuell bildlänk från miniset.net) — KLAR (2026-08-26)
+
+Se CLAUDE.md, avsnittet "Fas 4b — Manuell bildlänk från miniset.net
+(KLAR)", för fullständig dokumentation: `image_source`-fältet,
+bildextraktionens återanvändning mellan listnings- och produktsidor,
+URL-valideringen och skyddet mot att en automatisk om-matchning skriver
+över en manuell bild. Verifierat med curl + samma improviserade Playwright-
+uppsättning som Fas 2-4.
+
+### Verifierat under utvecklingen (riktig data, inte antaganden)
+
+- **"Chosen of Mortarion"** (`gw-99120102114`) hittades via webbsökning
+  (miniset.nets egen sökfunktion fungerar inte, se Fas 4) och länkades
+  manuellt mot `Malignant Plaguecaster` (BSData, Death Guard) — bekräftar
+  kickoff-dokumentets konkreta multi-hjälte-set-exempel.
+- Databasmigreringen kördes mot en databas som redan hade Fas 4:s tre
+  bildkolumner (inte bara en helt ny databas) — bekräftar att den
+  kolumn-för-kolumn-oberoende kollen faktiskt behövdes (den gamla
+  "allt-eller-inget"-varianten hade tyst missat att lägga till
+  `image_source`).
+- En tvingad om-matchning (`?force=true`) som INTE hittar något skriver
+  inte över en befintlig manuell bild — verifierat explicit, se CLAUDE.md.
+
+### Öppna punkter / kända begränsningar (Fas 4b)
+
+- **Ingen validering av att den manuella länken faktiskt är en Games
+  Workshop-produkt** eller att bilden är rimlig/relevant — precis som
+  fritextsökning i Fas 1:s produktbeslut littar verktyget på att Sivan
+  klistrar in rätt länk. `is_miniset_product_url` validerar bara att URL:en
+  har RÄTT FORM (miniset.net, `/sets/<id>`), inte att INNEHÅLLET är korrekt.
+- **Ingen "ångra"-historik** — om en manuell länk visar sig peka på fel
+  produkt finns bara "Ta bort bild" (nollställer helt) eller att klistra in
+  en ny länk (skriver över direkt), ingen mellanliggande bekräftelse eller
+  historik över tidigare länkade bilder.
+- **Ingen ny run-skill** genererad — samma öppna punkt som Fas 2-4.

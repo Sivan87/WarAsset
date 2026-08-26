@@ -101,6 +101,7 @@ def init_db():
             image_url TEXT,
             image_source_url TEXT,
             image_checked_at TEXT,
+            image_source TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -126,15 +127,21 @@ def _migrate_add_entries_profiles(conn):
 
 def _migrate_add_collection_units_image_fields(conn):
     """Fas 4: image_url/image_source_url/image_checked_at (miniset.net-
-    referensbilder) fanns inte i Fas 1-3:s schema. Samma mönster som
-    _migrate_add_entries_profiles ovan, men på collection_units eftersom
-    bilderna är kopplade till Sivans ägda enheter, inte BSData-katalogen
-    (se produktbeslutet i fas4-warasset-miniset-bilder.md om varför)."""
+    referensbilder) fanns inte i Fas 1-3:s schema. Fas 4b lade senare till
+    ett fjärde fält, image_source ('auto'/'manual'/NULL) — se
+    fas4b-warasset-manuell-bildlank.md. Varje kolumn kontrolleras
+    OBEROENDE av de andra (inte bara "saknas image_url") eftersom en
+    databas som redan körde Fas 4 har de tre första kolumnerna men inte
+    image_source, och en enda samlad "allt-eller-inget"-koll hade missat
+    det fallet. Samma mönster som _migrate_add_entries_profiles ovan, men
+    på collection_units eftersom bilderna är kopplade till Sivans ägda
+    enheter, inte BSData-katalogen (se produktbeslutet i
+    fas4-warasset-miniset-bilder.md om varför)."""
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(collection_units)").fetchall()}
-    if "image_url" not in cols:
-        conn.execute("ALTER TABLE collection_units ADD COLUMN image_url TEXT")
-        conn.execute("ALTER TABLE collection_units ADD COLUMN image_source_url TEXT")
-        conn.execute("ALTER TABLE collection_units ADD COLUMN image_checked_at TEXT")
+    to_add = [c for c in ("image_url", "image_source_url", "image_checked_at", "image_source") if c not in cols]
+    for col in to_add:
+        conn.execute(f"ALTER TABLE collection_units ADD COLUMN {col} TEXT")
+    if to_add:
         conn.commit()
 
 
@@ -417,14 +424,22 @@ def delete_unit(unit_id):
 
 
 # ---------------------------------------------------------------------------
-# collection_units — miniset.net-referensbild (Fas 4)
+# collection_units — miniset.net-referensbild (Fas 4 + Fas 4b)
 # ---------------------------------------------------------------------------
 
-def set_unit_image(unit_id, image_url, image_source_url):
-    """Sparar en lyckad matchning. image_checked_at sätts samtidigt så
-    en efterföljande sidladdning inte matchar om enheten i onödan (se
-    "Cacha resultatet" i fas4-warasset-miniset-bilder.md)."""
-    return update_unit(unit_id, image_url=image_url, image_source_url=image_source_url, image_checked_at=now_iso())
+def set_unit_image(unit_id, image_url, image_source_url, source="auto"):
+    """Sparar en lyckad matchning — antingen en automatisk (source='auto',
+    default, från miniset_client.match_unit) eller en manuellt inklistrad
+    länk (source='manual', se fas4b-warasset-manuell-bildlank.md).
+    image_checked_at sätts samtidigt oavsett källa så en efterföljande
+    sidladdning inte matchar om enheten i onödan (se "Cacha resultatet" i
+    fas4-warasset-miniset-bilder.md). image_source används av
+    api._trigger_auto_image_fetch/api_fetch_unit_image för att INTE skriva
+    över en manuellt vald bild av misstag."""
+    return update_unit(
+        unit_id, image_url=image_url, image_source_url=image_source_url,
+        image_checked_at=now_iso(), image_source=source,
+    )
 
 
 def mark_unit_image_checked(unit_id):
@@ -436,8 +451,9 @@ def mark_unit_image_checked(unit_id):
 
 
 def clear_unit_image(unit_id):
-    """Nollställer en felaktig automatisk matchning till 'aldrig kontrollerad'
-    igen (inte bara 'kontrollerad, ingen träff') — så en framtida sparning av
-    enheten kan trigga automatchningen på nytt. Rör aldrig photo_path (eget
-    uppladdat foto), separat fält enligt produktbeslutet."""
-    return update_unit(unit_id, image_url=None, image_source_url=None, image_checked_at=None)
+    """Nollställer en felaktig bild (automatisk ELLER manuell) till 'aldrig
+    kontrollerad' igen (inte bara 'kontrollerad, ingen träff') — så en
+    framtida sparning av enheten kan trigga automatchningen på nytt. Rör
+    aldrig photo_path (eget uppladdat foto), separat fält enligt
+    produktbeslutet."""
+    return update_unit(unit_id, image_url=None, image_source_url=None, image_checked_at=None, image_source=None)

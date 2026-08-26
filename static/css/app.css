@@ -124,6 +124,12 @@ body { padding-bottom: var(--space-8); }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .photo-row { display: flex; align-items: center; gap: var(--space-3); }
 .photo-row .unit-photo { width: 72px; height: 56px; flex: none; border-radius: var(--radius-sm); }
+
+/* — manuell bildlänk (Fas 4b) — */
+.image-link-row { display: flex; align-items: center; gap: var(--space-3); }
+.image-link-preview { width: 72px; height: 56px; flex: none; border-radius: var(--radius-sm); }
+.image-link-controls { display: flex; gap: var(--space-2); flex: 1; }
+.image-link-controls .input { flex: 1; }
 .field-hint { font-size: 11px; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 
 /* — enhetsnamn som länk (öppnar detaljvyn, Fas 3) — */

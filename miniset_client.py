@@ -17,6 +17,7 @@ Viktigt att komma ihåg vid ändringar:
 import re
 import threading
 import time
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -150,24 +151,37 @@ def _category_candidates_for_role(system_key, role):
     return candidates
 
 
+def _colorbox_image_url(scope):
+    """Bryter ut originalbildens URL ur en <a class="colorbox"> — en delad
+    primitiv mellan listningssidans per-produkt-parsing
+    (_parse_category_page) och en enskild, manuellt länkad produktsidas
+    bildextraktion (fetch_product_image, Fas 4b). BÅDA sidtyperna använder
+    samma colorbox-markup för originalbilden (samma fil som t.ex.
+    .../set/gw-99810102007-0.jpg), verifierat live under utvecklingen —
+    men en produktsida saknar listningssidans div.set-<id>/gallery_title-
+    wrapper, så bara den HÄR extraktionsbiten (inte hela sidparsern) går
+    att återanvända rakt av mellan de två fallen."""
+    img_a = scope.select_one("a.colorbox")
+    return img_a.get("href") if img_a else None
+
+
 def _parse_category_page(html):
     """Bryter ut (namn, produkt-url, bild-url) för varje produkt på en
     kategori-/fraktionslistningssida. DOM-strukturen verifierades live under
     utvecklingen (se CLAUDE.md, Fas 4): varje produkt ligger i en
     <div class="set-<nod-id>">, med produktnamn+länk i ett nästlat
-    div.gallery_title och originalbilden i en nästlad a.colorbox (samma
-    fil som produktsidans huvudbild, t.ex. .../set/gw-99810102007-0.jpg)."""
+    div.gallery_title och originalbilden i en nästlad a.colorbox (se
+    _colorbox_image_url)."""
     soup = BeautifulSoup(html, "html.parser")
     entries = []
     for block in soup.find_all("div", class_=re.compile(r"^set-\d+$")):
         title_a = block.select_one("div.gallery_title a")
-        img_a = block.select_one("a.colorbox")
-        if not title_a or not img_a:
+        image_url = _colorbox_image_url(block)
+        if not title_a or not image_url:
             continue
         href = title_a.get("href")
-        image_url = img_a.get("href")
         name = title_a.get_text(strip=True)
-        if not href or not image_url or not name:
+        if not href or not name:
             continue
         entries.append({
             "name": name,
@@ -191,6 +205,53 @@ def _fetch_category(game_line_slug, faction_slug, category_slug=None, page=1):
     if resp.status_code != 200:
         return []
     return _parse_category_page(resp.text)
+
+
+# Bara /sets/<produkt-id> på miniset.net (eller www.miniset.net) självt
+# accepteras som en manuell bildlänk (Fas 4b) — inte t.ex. en bildfils-URL
+# (.../files/set/...) eller en fraktions-/kategorilistningssida, och inte
+# en annan domän som råkar innehålla "miniset.net" i sökvägen eller som
+# underdomän/suffix (urlparse().netloc jämförs exakt, inte med "in").
+_PRODUCT_PATH_RE = re.compile(r"^/sets/[A-Za-z0-9_-]+/?$")
+
+
+def is_miniset_product_url(url):
+    try:
+        parsed = urlparse((url or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    if parsed.netloc.lower() not in ("miniset.net", "www.miniset.net"):
+        return False
+    return bool(_PRODUCT_PATH_RE.match(parsed.path))
+
+
+def fetch_product_image(source_url):
+    """Hämtar huvudbilden för EN specifik, av Sivan manuellt vald
+    miniset.net-produktsida (Fas 4b, se fas4b-warasset-manuell-bildlank.md
+    — för edge-cases den automatiska matchningen i match_unit() inte kan
+    lösa: flera "sculpts"/utgåvor av samma enhet, eller en hjälte som bara
+    säljs som del av ett multi-hjälte-set). Går igenom SAMMA globala
+    rate-limit som match_unit() (_rate_limited_get) och återanvänder samma
+    bildextraktions-primitiv (_colorbox_image_url) som listningssidorna,
+    se den funktionens docstring för varför bara primitiven (inte hela
+    sidparsern) återanvänds.
+
+    Returnerar {"image_url": "..."} vid träff, annars {"error": "..."} —
+    ALDRIG en tyst no-op (kickoff-dokumentets krav)."""
+    if not is_miniset_product_url(source_url):
+        return {"error": "Länken måste peka på en produktsida på miniset.net, t.ex. https://miniset.net/sets/gw-99810102007"}
+    try:
+        resp = _rate_limited_get(source_url)
+    except requests.RequestException as e:
+        return {"error": f"Kunde inte nå miniset.net: {e}"}
+    if resp.status_code != 200:
+        return {"error": f"miniset.net svarade med statuskod {resp.status_code}"}
+    image_url = _colorbox_image_url(BeautifulSoup(resp.text, "html.parser"))
+    if not image_url:
+        return {"error": "Hittade ingen bild på den sidan"}
+    return {"image_url": image_url}
 
 
 def match_unit(system_key, catalogue_name, entry_name, role=None):

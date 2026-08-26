@@ -142,27 +142,38 @@
   // referensbild (med källänk), (3) den ursprungliga "FOTO: {namn}"-
   // platshållaren. image_url/photo_path är separata fält — ett eget foto
   // döljer alltid en ev. miniset.net-bild men rör den aldrig.
+  // Fas 4b: image_source ("auto"/"manual") avgör krediten — en manuellt
+  // vald bild (se redigera-enhet-dialogens "Länk till rätt bild") får en
+  // liten 📌-markering så det syns att den är skyddad från att skrivas
+  // över av en framtida automatisk om-matchning.
   function unitPhotoHtml(u) {
     if (u.photo_path) {
       return `<div class="unit-photo lighten"><img src="${escapeHtml(u.photo_path)}" alt=""></div>`;
     }
     if (u.image_url) {
+      const manual = u.image_source === 'manual';
+      const creditLabel = (manual ? '📌 ' : '') + 'Bild: miniset.net';
+      const creditTitle = manual
+        ? 'Manuellt vald bild — skyddad från automatisk om-matchning'
+        : 'Automatiskt matchad bild från miniset.net';
       return `
         <div class="unit-photo lighten">
           <img src="${escapeHtml(u.image_url)}" alt="">
-          <a class="unit-image-credit" href="${escapeHtml(u.image_source_url || '#')}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Bild: miniset.net</a>
+          <a class="unit-image-credit" href="${escapeHtml(u.image_source_url || '#')}" title="${escapeHtml(creditTitle)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${creditLabel}</a>
         </div>`;
     }
     return `<div class="unit-photo"><span class="unit-photo-label">FOTO: ${escapeHtml(u.name)}</span></div>`;
   }
 
   // Ingen bulk-hämtning (medvetet, se kickoff-dokumentet) — bara en knapp
-  // per enhet, och bara för enheter med en BSData-koppling (utan entry_id
-  // finns ingen fraktion att söka miniset.net:s URL-struktur mot).
+  // per enhet. "Hämta/matcha om bild"-knappen (automatisk matchning) kräver
+  // en BSData-koppling (entry_id) för att veta fraktion/roll — men
+  // "Ta bort bild" ska finnas även för anpassade enheter med en manuellt
+  // länkad bild (Fas 4b, fungerar oavsett entry_id).
   function imageActionsHtml(u) {
-    if (u.entry_id == null) return '';
-    const fetchLabel = u.image_url ? 'Matcha om bild' : 'Hämta bild';
-    const fetchBtn = `<button type="button" class="btn btn-ghost" data-action="fetch-image" data-unit-id="${u.id}">${fetchLabel}</button>`;
+    const fetchBtn = u.entry_id != null
+      ? `<button type="button" class="btn btn-ghost" data-action="fetch-image" data-unit-id="${u.id}">${u.image_url ? 'Matcha om bild' : 'Hämta bild'}</button>`
+      : '';
     const deleteBtn = u.image_url
       ? `<button type="button" class="btn btn-ghost" data-action="delete-image" data-unit-id="${u.id}">Ta bort bild</button>`
       : '';
@@ -452,6 +463,12 @@
       count: 5,
       status: 'unbuilt',
       photoPath: null,
+      imageUrl: null,
+      imageSourceUrl: null,
+      imageSource: null,
+      manualImageLinkInput: '',
+      manualImageLoading: false,
+      manualImageError: null,
       customName: '',
       customPoints: '',
       saving: false,
@@ -477,6 +494,12 @@
       count: u.count,
       status: u.status,
       photoPath: u.photo_path,
+      imageUrl: u.image_url,
+      imageSourceUrl: u.image_source_url,
+      imageSource: u.image_source,
+      manualImageLinkInput: '',
+      manualImageLoading: false,
+      manualImageError: null,
       customName: u.name_override || u.name || '',
       customPoints: u.points_override != null ? String(u.points_override) : '',
       saving: false,
@@ -547,6 +570,35 @@
       </div>`;
   }
 
+  // Fas 4b: manuell bildlänk (se fas4b-warasset-manuell-bildlank.md) — för
+  // de edge-cases automatisk matchning inte kan lösa (flera "sculpts" av
+  // samma enhet, en hjälte bara såld i ett multi-hjälte-set). Fungerar
+  // oavsett spelsystem/anpassad enhet, precis som fotouppladdning bara
+  // tillgänglig vid redigering (kräver ett existerande unit-id).
+  function imageLinkRowHtml() {
+    const d = state.dialog;
+    if (!d.editingId) return '';
+    const preview = d.imageUrl
+      ? `<div class="unit-photo lighten image-link-preview"><img src="${escapeHtml(d.imageUrl)}" alt=""></div>`
+      : '';
+    const badge = d.imageSource === 'manual'
+      ? '<span class="tag tag-accent">📌 Manuellt vald</span>'
+      : (d.imageSource === 'auto' ? '<span class="tag tag-neutral">Auto-matchad</span>' : '');
+    return `
+      <div class="field">
+        <label>Länk till rätt bild (miniset.net)</label>
+        <div class="image-link-row">
+          ${preview}
+          <div class="image-link-controls">
+            <input class="input" type="text" id="image-link-input" autocomplete="off" placeholder="https://miniset.net/sets/…" value="${escapeHtml(d.manualImageLinkInput)}">
+            <button type="button" class="btn btn-ghost" id="image-link-fetch-btn" ${d.manualImageLoading ? 'disabled' : ''}>${d.manualImageLoading ? 'Hämtar…' : 'Hämta'}</button>
+          </div>
+        </div>
+        ${badge}
+        ${d.manualImageError ? `<p class="field-hint" style="color:var(--color-neutral-300)">${escapeHtml(d.manualImageError)}</p>` : ''}
+      </div>`;
+  }
+
   function dialogFieldsHtml() {
     const d = state.dialog;
     if (d.mode === 'search') {
@@ -576,6 +628,7 @@
           ${fieldSegHtml('draft-status', [['unbuilt', 'Ej byggd'], ['built', 'Byggd'], ['painted', 'Målad']], d.status)}
         </div>
         ${photoRowHtml()}
+        <div id="image-link-slot">${imageLinkRowHtml()}</div>
       `;
     }
     return `
@@ -598,6 +651,7 @@
         ${fieldSegHtml('draft-status', [['unbuilt', 'Ej byggd'], ['built', 'Byggd'], ['painted', 'Målad']], d.status)}
       </div>
       ${photoRowHtml()}
+      <div id="image-link-slot">${imageLinkRowHtml()}</div>
       <p class="field-hint">Anpassad enhet: finns inte i BSData-katalogen (t.ex. en konvertering/scratch-build), så fraktion/roll fylls inte i automatiskt.</p>
     `;
   }
@@ -709,6 +763,39 @@
     }
   }
 
+  function updateImageLinkRow() {
+    const slot = document.getElementById('image-link-slot');
+    if (slot) slot.innerHTML = imageLinkRowHtml();
+  }
+
+  // Fas 4b: sparar (och hämtar en förhandsvisning av) en manuell bildlänk
+  // OMEDELBART — precis som uploadPhoto ovan, oberoende av dialogens
+  // "Spara"-knapp. Kan ta upp till ~10 sekunder (samma rate-limit mot
+  // miniset.net som den automatiska matchningen, se miniset_client.py).
+  async function fetchManualImage() {
+    const d = state.dialog;
+    if (!d || !d.editingId) return;
+    const url = (d.manualImageLinkInput || '').trim();
+    if (!url) { d.manualImageError = 'Klistra in en länk till en produktsida på miniset.net först.'; updateImageLinkRow(); return; }
+    d.manualImageLoading = true;
+    d.manualImageError = null;
+    updateImageLinkRow();
+    try {
+      const updated = await api('/api/units/' + d.editingId + '/image-from-url', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_url: url }),
+      });
+      d.imageUrl = updated.image_url;
+      d.imageSourceUrl = updated.image_source_url;
+      d.imageSource = updated.image_source;
+      const u = state.units.find((x) => x.id === d.editingId);
+      if (u) { u.image_url = updated.image_url; u.image_source_url = updated.image_source_url; u.image_source = updated.image_source; }
+    } catch (e) {
+      d.manualImageError = e.message;
+    }
+    d.manualImageLoading = false;
+    updateImageLinkRow();
+  }
+
   async function saveDialog() {
     const d = state.dialog;
     d.error = null;
@@ -769,11 +856,22 @@
   // ---------------------------------------------------------------------
 
   async function fetchUnitImage(unitId, btn) {
+    // Fas 4b: en manuellt vald bild (image_source === 'manual') ska inte
+    // skrivas över i tysthet — fråga INNAN anropet görs (servern har ett
+    // eget skyddsnät i form av ett 409-svar utan ?force=true, se
+    // api_fetch_unit_image, men den här bekräftelsen är den primära
+    // kommunikationsvägen till användaren).
+    const u = state.units.find((x) => x.id === unitId);
+    let force = false;
+    if (u && u.image_source === 'manual') {
+      if (!window.confirm('Den här enheten har en manuellt vald bild. Ersätt den med en automatisk matchning?')) return;
+      force = true;
+    }
     const original = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Hämtar bild… (kan ta en stund)';
     try {
-      await api('/api/units/' + unitId + '/fetch-image', { method: 'POST' });
+      await api('/api/units/' + unitId + '/fetch-image' + (force ? '?force=true' : ''), { method: 'POST' });
       await loadUnits();
     } catch (e) {
       alert('Kunde inte hämta bild: ' + e.message);
@@ -896,10 +994,13 @@
 
     const fields = document.getElementById('dialog-fields');
 
-    // Klick: kombobox-resultat väljs
+    // Klick: kombobox-resultat väljs, eller "Hämta"-knappen bredvid den
+    // manuella bildlänken (Fas 4b)
     fields.addEventListener('click', (e) => {
       const result = e.target.closest('[data-action="select-entry"]');
       if (result) { selectEntry(parseInt(result.getAttribute('data-entry-id'), 10)); return; }
+      const imageLinkBtn = e.target.closest('#image-link-fetch-btn');
+      if (imageLinkBtn) { fetchManualImage(); return; }
     });
 
     // Skriv-events: rör bara state + riktade DOM-uppdateringar, aldrig en
@@ -919,6 +1020,8 @@
         d.customName = e.target.value;
       } else if (e.target.id === 'custom-points-input') {
         d.customPoints = e.target.value;
+      } else if (e.target.id === 'image-link-input') {
+        d.manualImageLinkInput = e.target.value;
       }
     });
 
