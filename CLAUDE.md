@@ -6,10 +6,11 @@ Unraid, öppet på det interna hemnätverket utan inloggning — samma mönster
 som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
 **Status: Fas 1 (grunddatabas + BSData-synk + API), Fas 2 (UI) och Fas 3
-(stats-popover) är ALLA KLARA.** Kickoff-dokumenten ligger kvar i repot:
-`fas1-warasset-grunddata-bsdata.md` (backend), `fas1b-warasset-deploy.md`
-(GitHub-koppling + deploy), `fas2-warasset-ui.md` (UI) och
-`fas3-warasset-stats-popover.md` (stats-popover).
+(enhetsdetalj/datasheet-vy) är ALLA KLARA.** Kickoff-dokumenten ligger kvar
+i repot: `fas1-warasset-grunddata-bsdata.md` (backend),
+`fas1b-warasset-deploy.md` (GitHub-koppling + deploy), `fas2-warasset-ui.md`
+(UI) och `fas3-warasset-stats-popover.md` (enhetsdetalj — filnamnet
+nämner "popover" men den UI:t landade på är en fullstor dialog, se nedan).
 
 ## Produktbeslut
 
@@ -395,11 +396,23 @@ mot `GET /api/units`). Inga konsolfel. En riktig run-skill för WarAsset är
 inte skapad — värt att göra via `/run-skill-generator` om UI:t byggs ut
 vidare.
 
-## Fas 3 — Stats-popover (KLAR)
+## Fas 3 — Enhetsdetalj / datasheet-vy (KLAR)
 
-Klick på ett enhetsnamn (galleri- eller listvy) öppnar en popover med
+Klick på ett enhetsnamn (galleri- eller listvy) öppnar en detaljvy med
 karaktäristik/vapenprofiler/förmågor för den BSData-post enheten är länkad
 till. Kickoff-dokumentet ligger kvar som `fas3-warasset-stats-popover.md`.
+
+**UI:t byggdes om en gång under fasen:** det första utkastet var en liten
+positionerad popover (samma allmänna idé som kickoff-dokumentet skissade),
+men efter upprepad feedback om att den kändes smal/hoptryckt ersattes den
+helt av en fullstor modal-dialog, importerad från designcanvasen
+`Miniatyrarkiv.dc.html` (dess "Datasheet view dialog", nådd via
+`claude-ai_Design`-MCP:t) — samma `dialog-backdrop`-mönster som redan fanns
+för add/edit-dialogen, med karaktäristik-rad, förmågor som kort och vapen
+som riktiga tabeller (en rad per vapen, inte ett kort per vapen) istället
+för ett flödande chip-grid. Se "UI" nedan för den aktuella
+implementationen — datamodellen/synken/API:et nedan är OFÖRÄNDRADE av
+ombygget.
 
 ### `entries.profiles` — struktur
 
@@ -425,9 +438,9 @@ sig mellan spelsystemen — verifierat mot riktiga filer:
 | Kill Team | `Model`/`Operative`, `Weapon`/`Weapons`, `Ability`/`Abilities`, `Equipment`, `Unique Actions`, `Battle Honours`, `Battle Scars`, `Psychic Power` |
 | AoS | `Unit`, `Melee Weapon`, `Ranged Weapon`, `Ability (Activated)`, m.fl. |
 
-UI:t (se nedan) grupperar "vapenprofiler" separat genom att regex-matcha
-`type` mot `/weapon/i` — täcker alla varianterna ovan utan att behöva en
-hårdkodad lista.
+UI:t (se nedan) delar upp profilerna i separata vapentabeller genom att
+regex-matcha `type` mot `/ranged/i`/`/melee/i`/`/weapon/i` — täcker alla
+varianterna ovan utan att behöva en hårdkodad lista.
 
 ### Insamling av profiler (`bsdata_sync._collect_profiles`)
 
@@ -456,7 +469,7 @@ Wargear-grupp → "Plague knives options"-grupp → `entryLink` → vapnets egna
    (`seen_profile_ids`)/nod-id (`visited_entries`) mot cirkulära/
    dubbeldefinierade referenser.
 
-**Medveten konsekvens av det här (inte ett förbiseende):** popovern visar
+**Medveten konsekvens av det här (inte ett förbiseende):** detaljvyn visar
 ALLA tillgängliga vapenprofiler/laddningsalternativ för en enhet (t.ex.
 Plague Marines: boltgevär, bultpistol, plasmagevär standard/överladdat,
 kraftnäve, pestknivar, ...), inte bara den utrustning som råkar vara vald.
@@ -488,61 +501,100 @@ följer med automatiskt sedan `_entry_row_to_dict` uppdaterades att
 `json.loads` den nya kolumnen — samma mönster som `keywords`/`points_table`.
 `GET /api/units/<id>` utökades INTE med nästlad entry-data (skulle
 duplicera data i varje `/api/units`-svar för inget syfte) — UI:t gör
-istället ett andra anrop mot `/api/entries/<entry_id>` när popovern öppnas,
+istället ett andra anrop mot `/api/entries/<entry_id>` när detaljvyn öppnas,
 samma mönster som redan fanns i Fas 2:s redigera-enhet-flöde
 (`openEditDialog` i `app.js`).
 
 ### UI (`static/js/app.js`, `static/css/app.css`, `templates/index.html`)
 
+Importerad från designcanvasen `Miniatyrarkiv.dc.html` (claude.ai/design,
+projekt "Warhammer inventeringsverktyg", läst via `claude-ai_Design`-MCP:t)
+— dess "Datasheet view dialog". Mockupens layout var hårdkodad för 40k
+(manuellt författad SEED-data med fasta `M`/`T`/`SV`/`W`/`LD`/`OC`- och
+`Range`/`A`/`BS`/`S`/`AP`/`D`/`Keywords`-kolumner) — här byggs allt istället
+DYNAMISKT från `entry.profiles` (se `bsdata_sync._collect_profiles`
+ovan), eftersom riktig data spänner tre spelsystem med olika
+karaktäristik-set.
+
 - Enhetsnamnet i både galleri- (`.unit-card-name`) och listvy
-  (tabellcellen) är nu en `<button data-action="show-stats"
+  (tabellcellen) är en `<button data-action="show-stats"
   data-unit-id="...">` med klassen `.name-link` (bakgrund/kant borttagen,
   ärver text, `:hover`/`:focus-visible` byter till `var(--color-accent)` +
   understrykning — Nocturnes länkfärg, inte en knapp-look).
-- `#stats-popover` (nytt element, sist i `<body>` i `index.html`, UTANFÖR
-  `#groups-container` så den överlever `render()`s omritningar av
-  enhetslistan) — `position: fixed`, positionerad i JS relativt det
-  klickade namnets `getBoundingClientRect()`
-  (`positionStatsPopover`/`clampStatsPopoverPosition` i `app.js`, den senare
-  klampar mot viewportens kanter så popovern aldrig hamnar delvis utanför
-  skärmen).
-- Stängs vid: klick utanför (`document`-nivå click-listener,
-  `initStatsPopoverGlobalHandlers`), `Escape`-tangenten, och vid VARJE
-  `render()`-anrop (sök/filter/sortering/gruppcollapse/synk-klar — en
-  öppen popover hör naturligt ihop med ETT klickat namn, inte med en
-  huvudvy som just ritats om under den).
-- Klick på ett ANNAT enhetsnamn medan popovern är öppen byter innehåll utan
-  extra stängningsklick: click-delegeringen i `groups-container` (som
-  anropar `openStatsPopover`) körs FÖRE den globala "klick utanför"-
-  lyssnaren i samma bubblande klick-event, och den globala lyssnaren skippar
-  explicit klick på `[data-action="show-stats"]` — annars hade den hunnit
-  stänga popovern precis efter att den nya öppnats.
+- `#view-dialog-backdrop` (sist i `<body>` i `index.html`) är samma
+  `dialog-backdrop`/`.dialog`-mönster som add/edit-dialogen redan använde i
+  Fas 2 (centrerad modal, inte en positionerad popover) — bara en bredare
+  modifierarklass `.view-dialog` (`width: min(760px, 100%); max-height:
+  88vh; overflow-y: auto`, matchar mockupens mått exakt).
+- Stängs vid: klick på backdropen utanför dialogrutan
+  (`initViewDialog` i `app.js`, samma `if (e.target === backdrop)`-mönster
+  som redan fanns för add/edit-dialogen), klick på "Stäng"-knappen,
+  `Escape`-tangenten, och vid VARJE `render()`-anrop (samma säkerhetsnät
+  som tidigare — en öppen detaljvy hör ihop med ETT klickat namn).
+- **`viewDialogBodyHtml`** delar `entry.profiles` i fyra hinkar:
+  - **header** — profilen vars `type` matchar `/^(unit|operative|model)$/i`
+    (annars profiles[0] som fallback), renderad som `.view-stat-line`: en
+    rad boxade "pills" (`.view-stat-box`, label+värde), en per
+    karaktäristik — `grid-template-columns: repeat(auto-fit,
+    minmax(64px,1fr))` istället för mockupens hårdkodade `repeat(6,1fr)`,
+    så det fungerar för Kill Team-operatörer med 10 karaktäristiker precis
+    lika bra som 40k:s 6.
+  - **ranged** (`/ranged/i`), **melee** (`/melee/i`) och en tredje,
+    generisk **"Vapen"**-hink (`/weapon/i` men varken ranged eller melee —
+    fångar Kill Team/äldre AoS-mönster vars vapenprofiler bara heter
+    "Weapon(s)" utan räckvidds-distinktion) — var och en sin egen
+    `.view-weapons-table`. Kolumnerna byggs som UNIONEN av alla
+    karaktäristik-nycklar som förekommer i den hinkens profiler (inte
+    mockupens hårdkodade `Range/A/BS/S/AP/D/Keywords`), så en tabell
+    fungerar oavsett vilka nycklar spelsystemet råkar använda.
+  - **abilities** — allt annat (`Abilities`/`Ability (Activated)`/
+    `Equipment`/`Unique Actions`/`Battle Honours`/`Battle Scars`/
+    `Psychic Power` m.fl.), renderat som `.view-ability`-kort. En profil med
+    EN karaktäristik (det vanliga fallet — `Description`/`Ability`/`Effect`
+    beroende på system) visas som ett textstycke, precis som mockupens
+    `ab.desc`; en profil med FLERA karaktäristiker (ovanligt) faller
+    tillbaka på ett kompakt chip-grid (`.stats-characteristics`/`.stat-chip`,
+    kvar från popover-utkastet) istället för att krascha.
+- **`CHAR_ORDER_PRIORITY`/`sortedCharKeys`** (i `app.js`): BSData:s XML
+  listar en profils `<characteristic>`-element ALFABETISKT (verifierat: en
+  40k-vapenprofil kommer ur synken som `A/AP/D/Keywords/Range/S/WS`, inte
+  spelets naturliga läsordning) — den ordningen ärvs rakt av i
+  `entries.profiles`. En prioritetslista över vanliga förkortningar
+  (`M,T,SV,W,LD,OC,...,Range,A,WS,BS,S,AP,D,...,Keywords,...`) sorterar om
+  VISNINGSORDNINGEN (inte den insamlade datan) så en datasheet läser som en
+  riktig sådan — verifierat att både 40k:s stat-rad (M/T/SV/W/LD/OC) och
+  vapenkolumnerna (Range/A/BS/S/AP/D/Keywords för ranged,
+  Range/A/WS/S/AP/D/Keywords för melee) nu matchar mockupens ordning exakt.
+  Nycklar som inte finns i listan hamnar sist, alfabetiskt.
 - Anpassade enheter (`entry_id == null`): namnet ÄR klickbart (enhetlig
-  styling/kod, ingen extra villkorsgren i mallarna) men popovern visar
+  styling/kod, ingen extra villkorsgren i mallarna) men dialogen visar
   "Ingen BSData-koppling — anpassad enhet." istället för att göra ett
-  API-anrop — se `statsPopoverContentHtml` i `app.js`.
-- **Fas 2:s `[hidden]`-bugg** (se ovan) — `.stats-popover` sätter INGEN
-  `display`-egenskap i sin bas-regel, så den globala `[hidden] { display:
-  none !important; }`-fixen i `app.css` räcker för att popovern verkligen
-  är osynlig/icke-interaktiv i stängt läge. Verifierat explicit med
-  Playwright: `page.locator('#stats-popover').boundingBox()` returnerar
-  `null` när popovern är stängd (samma sorts regressionstest som Fas 2:s
-  bugg borde ha fångat).
+  API-anrop — se `openViewDialog` i `app.js`.
+- **Fas 2:s `[hidden]`-bugg** (se ovan) gäller fortfarande — dialogen
+  återanvänder den redan existerande `.dialog-backdrop`-klassen (samma
+  `[hidden] { display: none !important; }`-fix som redan skyddar add/edit-
+  dialogen), så ingen ny CSS-specificitetsrisk introducerades. Verifierat
+  explicit med Playwright: `page.locator('#view-dialog-backdrop').
+  boundingBox()` returnerar `null` i stängt läge.
 
 ### Testat (Playwright, samma improviserade uppsättning som Fas 2)
 
 Mot en lokalt startad `python app.py` (venv-python, `.venv/Scripts/
 python.exe` — global `python` saknar `flask`/`python-dotenv`). Täckte:
-klick på "Plague Marines" → popover med korrekt statblock (M5"/T6/SV3+/
-W2/LD6+/OC2) + 2 förmågor + 14 vapenprofiler under en "VAPENPROFILER"-
-rubrik, stickprovskontrollerat mot källfilen; klick utanför → stängs; klick
-på ett annat enhetsnamn (en anpassad enhet) medan popovern är öppen →
-innehållet byts till "Ingen BSData-koppling"-meddelandet utan extra
-stängningsklick; `Escape` → stängs; `boundingBox()` är `null` i stängt
-läge (den explicita Fas 2-regressionskontrollen som kickoff-dokumentet bad
-om); fungerar identiskt från listvyn. Inga konsolfel. `POST /api/sync`
-kört om efter migreringen (både direkt via `bsdata_sync.run_full_sync()`
-och via det riktiga API:et mot en körande server) — `collection_units`
-bekräftat orört i båda fallen, `entries.profiles` ifyllt för stickprov
-(Plague Marines 40k, Liberators AoS, Dire Avenger Kill Team, alla
-manuellt kontrollerade mot sina källfiler ovan).
+klick på "Plague Marines" (40k) → dialog med korrekt statblock
+(M5"/T6/SV3+/W2/LD6+/OC2), 2 förmågekort, en "Ranged Weapons"- och en
+"Melee Weapons"-tabell med samtliga 14 vapenalternativ i rätt
+kolumnordning, stickprovskontrollerat mot källfilen; klick på "Dire
+Avenger" (Kill Team) → samma dialog med KT:s helt andra
+karaktäristik-set (M/T/SV/W/LD/Max/A/WS/BS/S) och vapentabellen korrekt
+under den generiska "Vapen"-rubriken (KT:s vapenprofiler har ingen
+ranged/melee-distinktion i `type`); "Stäng"-knapp, backdrop-klick och
+`Escape` stänger alla dialogen; `boundingBox()` är `null` i stängt läge;
+en anpassad enhet (utan `entry_id`) visar "Ingen BSData-koppling"-
+meddelandet utan krasch; fungerar identiskt från listvyn. Inga
+konsolfel. `POST /api/sync` kört om efter migreringen (både direkt via
+`bsdata_sync.run_full_sync()` och via det riktiga API:et mot en körande
+server) — `collection_units` bekräftat orört i båda fallen,
+`entries.profiles` ifyllt för stickprov (Plague Marines 40k, Liberators
+AoS, Dire Avenger Kill Team, alla manuellt kontrollerade mot sina
+källfiler ovan).

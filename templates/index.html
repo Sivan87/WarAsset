@@ -101,9 +101,18 @@
     </div>
   </div>
 
-  <!-- Fas 3: stats-popover vid klick på enhetsnamn -->
-  <div class="stats-popover card elev-md" id="stats-popover" hidden>
-    <div id="stats-popover-content"></div>
+  <!-- Fas 3: enhetsdetalj (datasheet-vy) vid klick på ett enhetsnamn -->
+  <div class="dialog-backdrop" id="view-dialog-backdrop" hidden>
+    <div class="dialog view-dialog" id="view-dialog">
+      <div class="view-dialog-head">
+        <div>
+          <div class="view-dialog-name" id="view-dialog-name"></div>
+          <div class="view-dialog-keywords" id="view-dialog-keywords"></div>
+        </div>
+        <button type="button" class="btn btn-secondary" id="view-dialog-close">Stäng</button>
+      </div>
+      <div id="view-dialog-body"></div>
+    </div>
   </div>
 
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>

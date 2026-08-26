@@ -26,7 +26,7 @@
     sortKey: 'name',
     collapsed: {},
     dialog: null,
-    statsPopover: null,
+    viewingUnitId: null,
   };
 
   // ---------------------------------------------------------------------
@@ -229,7 +229,7 @@
   }
 
   function render() {
-    closeStatsPopover();
+    closeViewDialog();
     renderStats();
     renderRoleOptions();
 
@@ -248,138 +248,154 @@
   }
 
   // ---------------------------------------------------------------------
-  // Stats-popover (Fas 3) — visas vid klick på ett enhetsnamn, positionerad
-  // relativt det klickade namnet (inte en centrerad modal som add/edit-
-  // dialogen). Stängs vid klick utanför/Escape/full omritning av
-  // huvudvyn (render(), se ovan) — inte vid klick på ett annat enhetsnamn,
-  // se initStatsPopoverGlobalHandlers() nedan: den öppningen byter bara
-  // innehåll utan en extra stängningsklick.
+  // Enhetsdetalj / datasheet-vy (Fas 3) — visas vid klick på ett enhetsnamn.
+  // Importerad från designcanvasen Miniatyrarkiv.dc.html ("Datasheet view
+  // dialog"): en fullstor modal (samma dialog-backdrop-mönster som add/
+  // edit-dialogen), inte en liten positionerad popover som det första
+  // utkastet. Mockupens layout var hårdkodad för 40k (fasta
+  // M/T/SV/W/LD/OC- och Range/A/BS/S/AP/D/Keywords-kolumner, byggda från
+  // manuellt författad SEED-data) — här byggs kolumnerna istället
+  // DYNAMISKT från entry.profiles (se viewDialogBodyHtml/
+  // viewWeaponsTableHtml nedan), eftersom Kill Team/AoS har andra
+  // karaktäristik-set (se CLAUDE.md, Fas 3).
   // ---------------------------------------------------------------------
 
-  function closeStatsPopover() {
-    if (!state.statsPopover) return;
-    state.statsPopover = null;
-    const pop = document.getElementById('stats-popover');
-    if (pop) pop.hidden = true;
+  const VIEW_HEADER_TYPE_RE = /^(unit|operative|model)$/i;
+
+  // BSData:s XML listar en profils <characteristic>-element ALFABETISKT
+  // (verifierat: en 40k-vapenprofil kommer ur bsdata_sync som
+  // A/AP/D/Keywords/Range/S/WS, inte spelets naturliga läsordning) — den
+  // ordningen ärvs rakt av i entries.profiles. Den här listan är bara en
+  // visuell prioritering för vanliga förkortningar över alla tre
+  // spelsystemen (se CLAUDE.md, Fas 3) så en datasheet läses i naturlig
+  // ordning (M/T/SV/W/... , Range/A/BS/S/AP/D/Keywords); allt som inte
+  // finns med hamnar sist, alfabetiskt — påverkar bara VISNINGSORDNING,
+  // inte vilken data som samlas in.
+  const CHAR_ORDER_PRIORITY = [
+    'M', 'T', 'SV', 'Sv', 'W', 'LD', 'Ld', 'OC', 'APL', 'GA', 'DF', 'Max',
+    'Range', 'A', 'WS', 'BS', 'S', 'AP', 'D', 'Type', 'SR',
+    'Keywords', 'Abilities', 'Description', 'Effect',
+  ];
+
+  function sortedCharKeys(characteristics) {
+    return Object.keys(characteristics || {}).sort((a, b) => {
+      const ia = CHAR_ORDER_PRIORITY.indexOf(a);
+      const ib = CHAR_ORDER_PRIORITY.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
   }
 
-  function positionStatsPopover(triggerEl) {
-    const pop = document.getElementById('stats-popover');
-    const rect = triggerEl.getBoundingClientRect();
-    pop.style.top = (rect.bottom + 8) + 'px';
-    pop.style.left = rect.left + 'px';
+  function closeViewDialog() {
+    state.viewingUnitId = null;
+    document.getElementById('view-dialog-backdrop').hidden = true;
   }
 
-  function clampStatsPopoverPosition() {
-    const pop = document.getElementById('stats-popover');
-    if (pop.hidden) return;
-    const margin = 8;
-    const rect = pop.getBoundingClientRect();
-    let left = rect.left;
-    let top = rect.top;
-    if (rect.right > window.innerWidth - margin) left -= (rect.right - (window.innerWidth - margin));
-    if (left < margin) left = margin;
-    if (rect.bottom > window.innerHeight - margin) top -= (rect.bottom - (window.innerHeight - margin));
-    if (top < margin) top = margin;
-    pop.style.left = left + 'px';
-    pop.style.top = top + 'px';
+  function viewStatLineHtml(headerProfile) {
+    if (!headerProfile) return '';
+    const chars = headerProfile.characteristics || {};
+    const boxes = sortedCharKeys(chars).map((k) => [k, chars[k]]).map(([k, v]) => `
+      <div class="view-stat-box">
+        <span class="view-stat-label">${escapeHtml(k)}</span>
+        <span class="view-stat-value">${escapeHtml(v)}</span>
+      </div>`).join('');
+    return boxes ? `<div class="view-stat-line">${boxes}</div>` : '';
   }
 
-  // Långa värden (t.ex. "Description"/"Keywords") får en egen hel rad
-  // (stat-chip-wide) istället för att tvingas in i samma smala kolumnbredd
-  // som korta karaktäristiker (M/T/SV/...) — annars blev hela profilen en
-  // enda smal, hög remsa istället för ett kompakt, brett flödande grid.
-  const WIDE_CHIP_THRESHOLD = 18;
-
-  function profileBlockHtml(p) {
-    const chips = Object.entries(p.characteristics || {}).map(([k, v]) => {
-      const wide = (v || '').length > WIDE_CHIP_THRESHOLD;
-      return `
-        <div class="stat-chip${wide ? ' stat-chip-wide' : ''}">
-          <div class="stat-chip-label">${escapeHtml(k)}</div>
-          <div class="stat-chip-value">${escapeHtml(v)}</div>
-        </div>`;
-    }).join('');
+  function viewAbilityHtml(p) {
+    const chars = p.characteristics || {};
+    const keys = sortedCharKeys(chars);
+    // Vanligast: EN karaktäristik som håller en text (Description/Ability/
+    // Effect m.fl. beroende på spelsystem, se CLAUDE.md) — visas som ett
+    // stycke, precis som mockupens ab.desc. Ovanliga profiler med flera
+    // karaktäristiker faller tillbaka på samma chip-grid som tidigare.
+    const body = keys.length === 1
+      ? `<p class="view-ability-desc">${escapeHtml(chars[keys[0]])}</p>`
+      : `<div class="stats-characteristics">${keys.map((k) => `
+          <div class="stat-chip">
+            <div class="stat-chip-label">${escapeHtml(k)}</div>
+            <div class="stat-chip-value">${escapeHtml(chars[k])}</div>
+          </div>`).join('')}</div>`;
     return `
-      <div class="stats-profile">
-        <div class="stats-profile-head">
-          <span class="stats-profile-name">${escapeHtml(p.name || '')}</span>
+      <div class="view-ability">
+        <div class="view-ability-head">
+          <span class="view-ability-name">${escapeHtml(p.name || '')}</span>
           <span class="tag tag-neutral">${escapeHtml(p.type || '')}</span>
         </div>
-        <div class="stats-characteristics">${chips}</div>
+        ${body}
       </div>`;
   }
 
-  function statsPopoverContentHtml(u, sp) {
-    if (!u) return '';
-    let html = `
-      <div class="stats-popover-name">${escapeHtml(u.name)}</div>
-      <div class="stats-popover-meta">${escapeHtml(u.catalogue_name || 'Anpassad')} · ${escapeHtml(u.role || 'Övrigt')}</div>`;
+  function viewWeaponsTableHtml(heading, weapons) {
+    if (!weapons.length) return '';
+    const keySet = new Set();
+    weapons.forEach((w) => Object.keys(w.characteristics || {}).forEach((k) => keySet.add(k)));
+    const keys = sortedCharKeys(Object.fromEntries(Array.from(keySet, (k) => [k, true])));
+    const thead = '<tr><th>Namn</th>' + keys.map((k) => `<th>${escapeHtml(k)}</th>`).join('') + '</tr>';
+    const rows = weapons.map((w) => {
+      const cells = keys.map((k) => `<td>${escapeHtml((w.characteristics && w.characteristics[k]) ?? '–')}</td>`).join('');
+      return `<tr><td>${escapeHtml(w.name || '')}</td>${cells}</tr>`;
+    }).join('');
+    return `
+      <div class="view-weapons-section">
+        <div class="view-weapons-heading">${escapeHtml(heading)}</div>
+        <div class="view-weapons-table-wrap">
+          <table class="view-weapons-table"><thead>${thead}</thead><tbody>${rows}</tbody></table>
+        </div>
+      </div>`;
+  }
 
-    if (u.entry_id == null) {
-      return html + '<p class="field-hint">Ingen BSData-koppling — anpassad enhet.</p>';
-    }
-    if (sp.loading) return html + '<p class="field-hint">Laddar…</p>';
-    if (sp.error) return html + `<p class="field-hint">${escapeHtml(sp.error)}</p>`;
-
-    const profiles = (sp.entry && sp.entry.profiles) || [];
+  function viewDialogBodyHtml(entry) {
+    const profiles = entry.profiles || [];
     if (!profiles.length) {
-      return html + '<p class="field-hint">Ingen profildata tillgänglig i BSData för den här posten.</p>';
+      return '<p class="view-nolink">Ingen profildata tillgänglig i BSData för den här posten.</p>';
     }
-    const weapons = profiles.filter((p) => /weapon/i.test(p.type || ''));
-    const other = profiles.filter((p) => !/weapon/i.test(p.type || ''));
-    html += other.map(profileBlockHtml).join('');
-    if (weapons.length) {
-      html += '<div class="stats-popover-subhead">Vapenprofiler</div>' +
-        '<div class="stats-weapons-columns">' + weapons.map(profileBlockHtml).join('') + '</div>';
-    }
-    return html;
+    const header = profiles.find((p) => VIEW_HEADER_TYPE_RE.test(p.type || '')) || profiles[0];
+    const rest = profiles.filter((p) => p !== header);
+    const ranged = rest.filter((p) => /ranged/i.test(p.type || ''));
+    const melee = rest.filter((p) => /melee/i.test(p.type || ''));
+    const otherWeapons = rest.filter((p) => /weapon/i.test(p.type || '') && !ranged.includes(p) && !melee.includes(p));
+    const abilities = rest.filter((p) => !ranged.includes(p) && !melee.includes(p) && !otherWeapons.includes(p));
+
+    return viewStatLineHtml(header) +
+      abilities.map(viewAbilityHtml).join('') +
+      viewWeaponsTableHtml('Ranged Weapons', ranged) +
+      viewWeaponsTableHtml('Melee Weapons', melee) +
+      viewWeaponsTableHtml('Vapen', otherWeapons);
   }
 
-  function renderStatsPopover() {
-    const sp = state.statsPopover;
-    const pop = document.getElementById('stats-popover');
-    if (!sp) { pop.hidden = true; return; }
-    const u = state.units.find((x) => x.id === sp.unitId);
-    pop.hidden = false;
-    document.getElementById('stats-popover-content').innerHTML = statsPopoverContentHtml(u, sp);
-    clampStatsPopoverPosition();
-  }
-
-  async function openStatsPopover(unitId, triggerEl) {
+  function openViewDialog(unitId) {
     const u = state.units.find((x) => x.id === unitId);
     if (!u) return;
-    state.statsPopover = { unitId, entry: null, loading: u.entry_id != null, error: null };
-    positionStatsPopover(triggerEl);
-    renderStatsPopover();
-    if (u.entry_id == null) return;
-    try {
-      const entry = await api('/api/entries/' + u.entry_id);
-      if (!state.statsPopover || state.statsPopover.unitId !== unitId) return; // stängd/bytt under tiden
-      state.statsPopover.entry = entry;
-      state.statsPopover.loading = false;
-      renderStatsPopover();
-    } catch (e) {
-      if (!state.statsPopover || state.statsPopover.unitId !== unitId) return;
-      state.statsPopover.loading = false;
-      state.statsPopover.error = 'Kunde inte hämta statistik: ' + e.message;
-      renderStatsPopover();
+    state.viewingUnitId = unitId;
+    document.getElementById('view-dialog-backdrop').hidden = false;
+    document.getElementById('view-dialog-name').textContent = u.name;
+    document.getElementById('view-dialog-keywords').textContent =
+      [u.catalogue_name, u.role].filter(Boolean).join(' · ') || 'Anpassad enhet';
+
+    const body = document.getElementById('view-dialog-body');
+    if (u.entry_id == null) {
+      body.innerHTML = '<p class="view-nolink">Ingen BSData-koppling — anpassad enhet.</p>';
+      return;
     }
+    body.innerHTML = '<p class="field-hint">Laddar…</p>';
+    api('/api/entries/' + u.entry_id).then((entry) => {
+      if (state.viewingUnitId !== unitId) return; // stängd/bytt under tiden
+      body.innerHTML = viewDialogBodyHtml(entry);
+    }).catch((e) => {
+      if (state.viewingUnitId !== unitId) return;
+      body.innerHTML = `<p class="view-nolink">Kunde inte hämta statistik: ${escapeHtml(e.message)}</p>`;
+    });
   }
 
-  function initStatsPopoverGlobalHandlers() {
-    // Klick utanför stänger — men inte om klicket landade på en
-    // show-stats-länk (den hanteras av groups-container-delegeringen och
-    // byter redan innehåll; att stänga här också hade bara gett en
-    // stäng-öppna-flimmer).
-    document.addEventListener('click', (e) => {
-      if (!state.statsPopover) return;
-      if (e.target.closest('#stats-popover')) return;
-      if (e.target.closest('[data-action="show-stats"]')) return;
-      closeStatsPopover();
-    });
+  function initViewDialog() {
+    const backdrop = document.getElementById('view-dialog-backdrop');
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeViewDialog(); });
+    document.getElementById('view-dialog-close').addEventListener('click', closeViewDialog);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && state.statsPopover) closeStatsPopover();
+      if (e.key === 'Escape' && !backdrop.hidden) closeViewDialog();
     });
   }
 
@@ -793,7 +809,7 @@
       const delBtn = e.target.closest('[data-action="delete"]');
       if (delBtn) { deleteUnit(parseInt(delBtn.getAttribute('data-unit-id'), 10)); return; }
       const statsBtn = e.target.closest('[data-action="show-stats"]');
-      if (statsBtn) { openStatsPopover(parseInt(statsBtn.getAttribute('data-unit-id'), 10), statsBtn); return; }
+      if (statsBtn) { openViewDialog(parseInt(statsBtn.getAttribute('data-unit-id'), 10)); return; }
     });
   }
 
@@ -870,7 +886,7 @@
     initToolbar();
     initGroupsDelegation();
     initDialogDelegation();
-    initStatsPopoverGlobalHandlers();
+    initViewDialog();
     loadUnits().catch((e) => {
       document.getElementById('groups-container').innerHTML = `<p class="empty-state">Kunde inte läsa enheter: ${escapeHtml(e.message)}</p>`;
     });

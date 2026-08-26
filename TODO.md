@@ -120,37 +120,45 @@ titeln "WarAsset", alla tre statiska filer (`static/css/nocturne.css`,
 `warasset-warasset-1` kör. WarAsset är alltså komplett end-to-end: BSData-
 synk, sök-API, CRUD-API och nu ett riktigt UI, allt live.
 
-## Fas 3 (stats-popover) — KLAR (2026-08-26)
+## Fas 3 (enhetsdetalj/datasheet-vy) — KLAR (2026-08-26)
 
-Se CLAUDE.md, avsnittet "Fas 3 — Stats-popover (KLAR)", för fullständig
-dokumentation: `entries.profiles`-strukturen per spelsystem, den
-rekursiva profil-insamlingen i `bsdata_sync._collect_profiles`,
+Se CLAUDE.md, avsnittet "Fas 3 — Enhetsdetalj / datasheet-vy (KLAR)", för
+fullständig dokumentation: `entries.profiles`-strukturen per spelsystem,
+den rekursiva profil-insamlingen i `bsdata_sync._collect_profiles`,
 databasmigreringen (`database._migrate_add_entries_profiles`) och
-UI-implementationen (klickbart enhetsnamn, positionerad popover, stäng-
-beteende). Verifierat med samma improviserade Playwright-uppsättning som
-Fas 2.
+UI-implementationen. Verifierat med samma improviserade Playwright-
+uppsättning som Fas 2.
+
+**UI-historik:** det första utkastet var en liten positionerad popover.
+Efter upprepad feedback om att den kändes smal/hoptryckt (trots flera
+breddökningar och ett omgjort chip-grid) ersattes den helt av en fullstor
+modal-dialog importerad från designcanvasen `Miniatyrarkiv.dc.html`
+("Datasheet view dialog", nådd via `claude-ai_Design`-MCP:t) — samma
+`dialog-backdrop`-mönster som add/edit-dialogen, med vapenprofiler som
+riktiga tabellrader istället för kort. Datamodellen/synken/API:et är
+oförändrade sedan innan ombygget.
 
 ### Öppna punkter / kända begränsningar (Fas 3)
 
-- **Popovern visar ALLA tillgängliga vapenprofiler/laddningsalternativ**,
+- **Dialogen visar ALLA tillgängliga vapenprofiler/laddningsalternativ**,
   inte bara den utrustning en spelare råkar ha valt — en medveten
   konsekvens av att `collection_units` bara registrerar antal modeller, inte
   enskilda vapenval (samma registreringsnivå som resten av verktyget). Kan
   uppfattas som "för mycket information" för enheter med många alternativ
-  (Plague Marines: 17 profiler) — inte åtgärdat, se CLAUDE.md.
+  (Plague Marines: 17 profiler, ger 14 tabellrader) — mildrat men inte helt
+  åtgärdat av tabellayouten (mycket kompaktare än det tidigare
+  kort-per-profil-utkastet), se CLAUDE.md.
 - **`_MAX_PROFILE_DEPTH = 10`** i `bsdata_sync.py` är en säkerhetsspärr mot
   orimligt djup/cirkulär nästling, inte grundligt stresstestad mot alla
   ~11 000 entries i de tre repona (bara stickprovskontrollerad: Plague
   Marines 40k, Liberators AoS, Dire Avenger Kill Team). Om framtida
   BSData-ändringar nästlar vapenval djupare än så tappas de tysta
   (returnerar bara tomt för den grenen, kraschar inte synken).
-- **Popoverns positionering** (`position: fixed` relativt det klickade
-  namnet, klampad mot viewportens kanter) kan i teorin täcka andra
-  enhetskort i en tät galleri-vy om profillistan är lång (t.ex. Plague
-  Marines 17 profiler) — inte ett problem för "klicka på ett annat namn"-
-  kravet i sig (namnet finns fortfarande kvar i DOM:en och går att nå), men
-  kan kännas trångt rent visuellt. Inte åtgärdat (skulle t.ex. kunna lösas
-  med en maxhöjd + smartare positionering ovanför/vid sidan om triggern om
-  det visar sig störa i praktiken).
+- **`CHAR_ORDER_PRIORITY` i `app.js`** är en manuellt författad
+  prioritetslista över vanliga karaktäristik-förkortningar (för att motverka
+  att BSData:s alfabetiska XML-ordning läcker in i UI:t, se CLAUDE.md) —
+  bara verifierad mot 40k och Kill Team. Ovanliga/framtida
+  karaktäristik-namn som inte finns i listan hamnar sist (alfabetiskt),
+  inte trasigt, men kan se lite fel ordnade ut tills listan utökas.
 - **Ingen ny run-skill** genererad trots samma improviserade Playwright-
   uppsättning som Fas 2 — samma öppna punkt som redan noterades där.
