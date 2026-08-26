@@ -106,6 +106,39 @@ def init_db():
             updated_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_collection_units_entry ON collection_units(entry_id);
+
+        -- Fas 4c: circuit breaker for miniset.net (see
+        -- fas4c-warasset-miniset-incident.md / CLAUDE.md "Fas 4c" for the
+        -- incident this exists to handle). Single row (id=1) holding the
+        -- current cooldown, if any. Persisted in the database rather than
+        -- an in-memory flag so a container restart/redeploy can never
+        -- accidentally reset an active cooldown and resume hammering a
+        -- site that just flagged us.
+        CREATE TABLE IF NOT EXISTS miniset_block (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            detected_at TEXT NOT NULL,
+            blocked_until TEXT NOT NULL,
+            reason TEXT
+        );
+
+        -- Fas 4c: durable log of every actual outbound request to
+        -- miniset.net (timestamp, URL, status code, whether it tripped the
+        -- block detector). Added because the incident this responds to
+        -- could NOT be forensically reconstructed afterwards — the only
+        -- history was `print()` output to container stdout, which a
+        -- routine redeploy (docker compose up -d --build recreates the
+        -- container) throws away. Kept in the database instead, which
+        -- survives redeploys via the mounted data volume. Trimmed to the
+        -- most recent 500 rows on each insert (see log_miniset_request) —
+        -- a diagnostic trail, not something that needs unbounded history.
+        CREATE TABLE IF NOT EXISTS miniset_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requested_at TEXT NOT NULL,
+            url TEXT NOT NULL,
+            status_code INTEGER,
+            blocked INTEGER NOT NULL DEFAULT 0,
+            error TEXT
+        );
     """)
     conn.commit()
     _migrate_add_entries_profiles(conn)
@@ -457,3 +490,67 @@ def clear_unit_image(unit_id):
     aldrig photo_path (eget uppladdat foto), separat fält enligt
     produktbeslutet."""
     return update_unit(unit_id, image_url=None, image_source_url=None, image_checked_at=None, image_source=None)
+
+
+# ---------------------------------------------------------------------------
+# miniset.net circuit breaker + request log (Fas 4c, see
+# fas4c-warasset-miniset-incident.md and CLAUDE.md "Fas 4c")
+# ---------------------------------------------------------------------------
+
+def get_miniset_block():
+    """Returns {"blocked_until", "detected_at", "reason"} if a cooldown is
+    CURRENTLY active (blocked_until is in the future), otherwise None — a
+    past cooldown that has expired is treated as "not blocked" without
+    needing to delete the row (the row is just left as history until the
+    next block overwrites it)."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM miniset_block WHERE id = 1").fetchone()
+    conn.close()
+    if not row or row["blocked_until"] <= now_iso():
+        return None
+    return dict(row)
+
+
+def set_miniset_block(reason, cooldown_hours):
+    """Records a freshly detected block and starts a cooldown of
+    cooldown_hours from now. Called only from miniset_client when a
+    response is recognized as the site's own bot-protection page — see
+    miniset_client._looks_blocked."""
+    from datetime import timedelta
+    detected_at = now_iso()
+    blocked_until = (datetime.now(timezone.utc) + timedelta(hours=cooldown_hours)).isoformat()
+    with WRITE_LOCK:
+        conn = get_connection()
+        conn.execute(
+            """INSERT INTO miniset_block (id, detected_at, blocked_until, reason)
+               VALUES (1, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                   detected_at = excluded.detected_at,
+                   blocked_until = excluded.blocked_until,
+                   reason = excluded.reason""",
+            (detected_at, blocked_until, reason),
+        )
+        conn.commit()
+        conn.close()
+    return blocked_until
+
+
+def log_miniset_request(url, status_code=None, blocked=False, error=None):
+    """Durable record of one actual outbound request to miniset.net — see
+    the miniset_requests table comment in init_db for why this exists
+    (container stdout logs don't survive a redeploy). Trims to the most
+    recent 500 rows on each insert; this is a diagnostic trail, not data
+    that needs to be kept forever."""
+    with WRITE_LOCK:
+        conn = get_connection()
+        conn.execute(
+            "INSERT INTO miniset_requests (requested_at, url, status_code, blocked, error) VALUES (?, ?, ?, ?, ?)",
+            (now_iso(), url, status_code, 1 if blocked else 0, error),
+        )
+        conn.execute(
+            """DELETE FROM miniset_requests WHERE id NOT IN (
+                   SELECT id FROM miniset_requests ORDER BY id DESC LIMIT 500
+               )"""
+        )
+        conn.commit()
+        conn.close()

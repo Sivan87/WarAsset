@@ -116,6 +116,19 @@ VALID_STATUSES = set(db.STATUSES)
 # Referensbild från miniset.net (Fas 4, se fas4-warasset-miniset-bilder.md)
 # ---------------------------------------------------------------------------
 
+def _miniset_blocked_message(blocked_until):
+    """Fas 4c (fas4c-warasset-miniset-incident.md, CLAUDE.md "Fas 4c"):
+    shared, honest UI message for all three miniset.net call paths while a
+    circuit-breaker cooldown is active. Deliberately does NOT retry or
+    fall back to anything else — see the incident doc for why hammering a
+    site that just flagged us would be worse than just waiting it out."""
+    when = (blocked_until or "").split("T")[0] or "later"
+    return (
+        "Image lookup from miniset.net is temporarily unavailable — their site flagged our requests as "
+        f"automated activity, so we've stopped trying until {when}. You can link an image manually instead."
+    )
+
+
 def _trigger_auto_image_fetch(unit):
     """Startar en bakgrundsmatchning mot miniset.net efter att en enhet
     sparats/länkats mot en BSData-entry, om ingen bild redan hämtats eller
@@ -141,7 +154,15 @@ def _trigger_auto_image_fetch(unit):
             result = miniset_client.match_unit(
                 system_key=system_key, catalogue_name=catalogue_name, entry_name=entry_name, role=role
             )
-            if result.get("matched"):
+            if result.get("blocked"):
+                # Fas 4c: deliberately do NOT call mark_unit_image_checked
+                # here — leaving image_checked_at unset means the next time
+                # this unit is saved, the auto-trigger will try again on
+                # its own once the cooldown has lifted, without needing a
+                # manual re-fetch. No further request was made to get here
+                # (match_unit short-circuits before touching the network).
+                print(f"[api] Skipping automatic image match for unit {unit_id}: {result.get('reason')}")
+            elif result.get("matched"):
                 db.set_unit_image(unit_id, result["image_url"], result["image_source_url"], source="auto")
             else:
                 db.mark_unit_image_checked(unit_id)
@@ -182,6 +203,12 @@ def api_fetch_unit_image(unit_id):
         entry_name=unit.get("entry_name") or unit.get("name"),
         role=unit.get("role"),
     )
+    if result.get("blocked"):
+        return jsonify({
+            "error": _miniset_blocked_message(result.get("blocked_until")),
+            "blocked": True,
+            "blocked_until": result.get("blocked_until"),
+        }), 503
     if result.get("matched"):
         db.set_unit_image(unit_id, result["image_url"], result["image_source_url"], source="auto")
     else:
@@ -219,6 +246,12 @@ def api_set_unit_image_from_url(unit_id):
         return jsonify({"error": "source_url is required"}), 400
 
     result = miniset_client.fetch_product_image(source_url)
+    if result.get("blocked"):
+        return jsonify({
+            "error": _miniset_blocked_message(result.get("blocked_until")),
+            "blocked": True,
+            "blocked_until": result.get("blocked_until"),
+        }), 503
     if result.get("error"):
         return jsonify({"error": result["error"]}), 400
 

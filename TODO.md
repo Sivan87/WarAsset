@@ -279,3 +279,46 @@ uppsättning som Fas 2-4.
   en ny länk (skriver över direkt), ingen mellanliggande bekräftelse eller
   historik över tidigare länkade bilder.
 - **Ingen ny run-skill** genererad — samma öppna punkt som Fas 2-4.
+
+## Fas 4c (incident: miniset.net-blockering + circuit breaker) — KLAR (2026-08-26)
+
+Se CLAUDE.md, avsnittet "Fas 4c — Incident: miniset.net rate-limit block
+(KLAR)", för fullständig dokumentation: root cause-utredningen (varför den
+tekniska 10-sekunders-spärren visade sig vara korrekt implementerad redan
+innan, och varför bevisen för det exakta orsaksförloppet redan var borta
+när incidenten utreddes), circuit breaker-implementationen
+(`MinisetBlockedError`, `database.miniset_block`,
+`database.miniset_requests`) och den nya observability-tabellen. Verifierat
+UTESLUTANDE offline (monkeypatchad `requests.get` + en riktig men
+throwaway-DB-instans av `app.py`) — INGEN riktig request skickades till
+miniset.net under hela incident-utredningen, per kickoff-dokumentets krav.
+
+### Öppna punkter / kända begränsningar (Fas 4c)
+
+- **Root cause är en välgrundad slutsats, inte ett bevisat faktum.** De
+  faktiska request-loggarna från själva incidenttillfället gick förlorade
+  (containern återskapades av samma dags Fas 5-redeploy innan utredningen
+  började) — se CLAUDE.md för resonemanget kring varför kumulativ
+  request-VOLYM under Fas 4/4b:s utvecklings- och testcykel är den mest
+  sannolika förklaringen, inte en spärr-bugg (som kodgranskningen
+  uteslöt). Om en ny blockering inträffar nu finns äntligen en riktig
+  logg (`database.miniset_requests`) att utgå från istället för att
+  gissa efteråt.
+- **Blockeringsdetekteringen bygger på textmatchning, inte statuskod** —
+  den faktiska statuskoden miniset.net svarade med bekräftades aldrig
+  (ingen livetrafik gjordes under utredningen). Om miniset.net någon gång
+  ändrar den exakta ordalydelsen i sin spärrsida kommer detekteringen att
+  missa den tyst (fallet blir bara "inget hittades", inte en krasch) —
+  värt att uppdatera `_BLOCK_TEXT_MARKERS` i `miniset_client.py` om det
+  upptäcks.
+- **`MINISET_BLOCK_COOLDOWN_HOURS`** (default 48h) är inte tillagd i den
+  lokala/produktionens `.env` — miljövariabeln är valfri
+  (`os.environ.get(...)`-fallback), men om Sivan vill justera
+  cooldown-längden krävs ett manuellt tillägg till `.env` på servern
+  (kom ihåg detta rör sig INTE med automatiskt med `git pull`, se
+  CLAUDE.md-avsnittet om Unraid-servern).
+- **Ingen UI-indikator INNAN man klickar** (t.ex. en banner "bildhämtning
+  pausad till X") — cooldown-läget syns först när Sivan faktiskt försöker
+  en bild-åtgärd och får 503-felmeddelandet. Bedömt tillräckligt för en
+  ovanlig, tillfällig incident-lägen — en dedikerad statusindikator vore
+  onödig komplexitet för ett läge som (förhoppningsvis) sällan uppstår.

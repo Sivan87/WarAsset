@@ -6,15 +6,18 @@ Unraid, öppet på det interna hemnätverket utan inloggning — samma mönster
 som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
 **Status: Fas 1 (grunddatabas + BSData-synk + API), Fas 2 (UI), Fas 3
-(enhetsdetalj/datasheet-vy), Fas 4 (referensbilder från miniset.net) och
-Fas 4b (manuell bildlänk) är ALLA KLARA.** Kickoff-dokumenten ligger kvar
+(enhetsdetalj/datasheet-vy), Fas 4 (referensbilder från miniset.net), Fas 4b
+(manuell bildlänk), Fas 4c (miniset.net-incident + circuit breaker) och
+Fas 5 (brand identity) är ALLA KLARA.** Kickoff-dokumenten ligger kvar
 i repot: `fas1-warasset-grunddata-bsdata.md` (backend),
 `fas1b-warasset-deploy.md` (GitHub-koppling + deploy), `fas2-warasset-ui.md`
 (UI), `fas3-warasset-stats-popover.md` (enhetsdetalj — filnamnet nämner
 "popover" men den UI:t landade på är en fullstor dialog, se nedan),
-`fas4-warasset-miniset-bilder.md` (referensbilder) och
+`fas4-warasset-miniset-bilder.md` (referensbilder),
 `fas4b-warasset-manuell-bildlank.md` (manuell bildlänk för de fall den
-automatiska matchningen inte kan lösa).
+automatiska matchningen inte kan lösa), `fas4c-warasset-miniset-incident.md`
+(miniset.net rate-limit-incidenten och circuit breaker-fixen) och
+`fas5-warasset-brand-identity.md` (logotyp/favicon/navbar).
 
 ## Produktbeslut
 
@@ -992,6 +995,153 @@ korrekta, olika produktbilder med 📌-markeringen synlig och läsbar. Inga
 JS-runtime-fel (en enda loggad post var webbläsarens egen nätverks-
 statusloggning av det AVSIKTLIGT ogiltiga anropet, inte en kodkrasch).
 Alla testenheter raderade efteråt.
+
+## Fas 4c — Incident: miniset.net rate-limit block (KLAR, 2026-08-26)
+
+miniset.net's own bot-protection returned "Access to this page has been
+temporarily restricted due to suspicious automated activity from your
+network address" for requests from the Unraid server's IP. Kickoff-
+dokumentet ligger kvar som `fas4c-warasset-miniset-incident.md`.
+
+### Root cause — what the investigation actually found
+
+- **Code audit confirmed the 10-second rate limit itself was NOT buggy.**
+  All three call paths (auto-trigger on save, the manual "Fetch image"
+  button, and the manual image-link endpoint) already went through the
+  SAME global lock/timestamp in `miniset_client._rate_limited_get` — no
+  independent locks, no gap-timing bug. The paginated Kill Team/AoS
+  fallback also already went through the same single choke point, one
+  request at a time.
+- **The historical evidence was already gone by the time this was
+  investigated.** `docker logs` only ever showed container stdout, and a
+  routine redeploy (`docker compose up -d --build`, run earlier the same
+  day for Fas 5) recreates the container — Docker's default log driver
+  does not survive that. `docker ps -a` on the server showed only the
+  single, freshly-created container; the exact request timeline that
+  triggered the block could not be forensically reconstructed. **This is
+  itself a finding, not just a limitation** — see "Observability" below.
+- **Most plausible cause given the remaining evidence: cumulative request
+  VOLUME, not a spacing bug.** Fas 4/4b's development+testing cycle made
+  many individually correctly-spaced (≥10s apart) but still numerous
+  curl/Playwright requests against the LIVE site within one compressed
+  window, all from one static IP with one fixed User-Agent, systematically
+  walking category/pagination pages — a classic bot signature to a
+  volume-aware WAF even when no single request violates the crawl-delay.
+  The `User-Agent` was already a descriptive, honest string (`WarAsset/1.0
+  (privat icke-kommersiellt inventeringsverktyg; ...)`), not a generic
+  HTTP-library default, so that was ruled out as a likely sole cause
+  (though it can't be fully excluded without the lost logs).
+
+### Fix — circuit breaker (`miniset_client.py`, `database.py`, `api.py`)
+
+- **`_looks_blocked(resp)`** detects the block by its own TEXT, not a
+  status code — the actual status code miniset.net used was never
+  confirmed (see above), so gating on a guessed code risked missing it.
+  Requires BOTH marker phrases from Sivan's literally observed wording
+  ("temporarily restricted" AND "suspicious automated activity") to avoid
+  a coincidental false positive.
+- **`MinisetBlockedError`** is raised by `_rate_limited_get` — the single
+  choke point already shared by all three call paths — both the instant a
+  block is freshly detected AND on every subsequent call while an earlier
+  cooldown is still active. Checked once before even queueing for the
+  rate-limit lock (so a blocked caller never waits 10s pointlessly) and
+  again immediately after acquiring it (closes the race where the request
+  immediately ahead in the queue is the one that just tripped the block).
+  **No further request is made to miniset.net at all while blocked** —
+  not a retry-with-backoff, a hard stop.
+- **Persisted, not in-memory** (`database.miniset_block`, single row,
+  id=1): a container restart/redeploy can never reset an active cooldown
+  and accidentally resume hammering a site that just flagged us — exactly
+  the scenario that made this incident hard to diagnose in the first
+  place (see "Observability" below).
+- **Cooldown length:** `MINISET_BLOCK_COOLDOWN_HOURS` env var (same
+  `os.environ.get(...)` pattern as `SYNC_INTERVAL_SECONDS` in `app.py`),
+  default **48 hours**.
+- **All three call paths return a distinct `blocked` result** instead of
+  looking like an ordinary "no match"/fetch failure:
+  - `match_unit()` → `{"matched": False, "blocked": True, "blocked_until", "reason"}`.
+  - `fetch_product_image()` → `{"error": ..., "blocked": True, "blocked_until"}`
+    for a product-page URL that needs a real fetch. **The direct
+    bildfils-länk path (`/files/set/...`, Fas 4b-tillägget) is explicitly
+    EXEMPT** — it never makes a network call at all (already true before
+    this incident), so it still works during a cooldown as Sivan's manual
+    fallback.
+  - `_trigger_auto_image_fetch` (background, silent): on `blocked`,
+    deliberately does NOT call `mark_unit_image_checked` — leaves
+    `image_checked_at` unset so the NEXT time the unit is saved, the
+    auto-trigger retries on its own once the cooldown has lifted, with no
+    manual re-fetch needed. Just logs a line, never crashes/surfaces to
+    the user (same "best effort" contract as before).
+  - `api_fetch_unit_image`/`api_set_unit_image_from_url` → `503` with
+    `{"error": "<honest message>", "blocked": true, "blocked_until": ...}`
+    (`api._miniset_blocked_message`), which the existing `api()` JS helper
+    already surfaces via `d.imageError` (`static/js/app.js`) — **no
+    frontend code changes were needed**, since the error-display path
+    (field-hint under the image-link row) already existed from Fas 4b.
+
+### Observability (new)
+
+- **`database.miniset_requests`** — a durable log of every actual outbound
+  request to miniset.net (timestamp, URL, status code, whether it tripped
+  the block detector), trimmed to the most recent 500 rows on insert.
+  Added specifically because the incident above COULD NOT be
+  reconstructed from `print()`/`docker logs` output, which a routine
+  redeploy throws away. Query it directly against the DB file (same
+  approach as inspecting `collection_units` ad hoc, no dedicated API
+  endpoint added — deliberately, to avoid scope creep for a diagnostic
+  table only a future debugging session needs).
+- The block itself is also always printed to stdout when first detected
+  (`[miniset_client] BLOCKED by miniset.net (status ...) ...`), same as
+  other best-effort logging elsewhere in this codebase — but the DB table
+  is the durable source of truth now, not the print statement.
+
+### Verified (offline — no real request to miniset.net was made at any point)
+
+**Stop-the-line constraint honored throughout:** root-caused, fixed, and
+verified entirely via code audit, `requests.get` monkeypatching, and a
+throwaway temp-DB instance of the real Flask app — never once against the
+live miniset.net during this incident response, per the kickoff document's
+explicit instruction.
+
+- A scripted `requests.get` monkeypatch simulating the exact observed
+  block page confirmed: `match_unit()` detects it and returns `blocked`;
+  a SECOND call (simulating the auto-trigger firing again, or Sivan
+  clicking "Fetch image" again) makes **zero** further network calls
+  (asserted via a call counter, not just visual inspection) and still
+  returns `blocked`; `fetch_product_image()` on a product-page URL
+  short-circuits identically; the direct-file-link path is confirmed
+  unaffected either way; `database.miniset_requests` gets a row with
+  `blocked=1`; once `blocked_until` is manually set to the past, the very
+  next call resumes normal processing.
+- A full real (but throwaway-DB, `127.0.0.1`-only) run of `app.py` with a
+  cooldown pre-seeded directly in the DB (never via a real miniset.net
+  hit) confirmed via `curl` end-to-end, through the real Flask routes:
+  `POST /api/units/<id>/fetch-image` on an entry-linked unit → `503` with
+  the exact honest UI message and `blocked_until` date; `POST
+  /api/units/<id>/image-from-url` with a product-page link → same `503`;
+  the same endpoint with a direct `/files/set/...` link → `200`, succeeds
+  normally (exempt, no network call); `POST /api/units` (create, with an
+  `entry_id`) → the background auto-trigger logged that it skipped and
+  left `image_checked_at` unset, confirmed via a follow-up `GET
+  /api/units/<id>`, no crash.
+- **Not independently re-verified in a browser** beyond the above
+  (`d.imageError`'s display path is unchanged Fas 4b code, already
+  Playwright-verified then) — a deliberate scope decision given the
+  stop-the-line constraint on the one hand and that this UI path carries
+  no new rendering logic on the other, not an oversight.
+
+### Rollout — manually seeded cooldown on deploy
+
+After deploying this fix, a cooldown was seeded DIRECTLY in the
+production database (`database.set_miniset_block`, not via a real
+miniset.net request) covering the default 48 hours from the deploy
+moment — because Sivan's report describes the block as still active at
+deploy time, and the new detector can only ever confirm/observe a block by
+making a request, which is exactly what the kickoff document said not to
+do yet. This guarantees no code path (auto-trigger included) makes a real
+request until that window passes, regardless of whether the real-world
+block had already technically expired. The direct bildfils-länk manual
+workaround (see above) remains available immediately, unaffected.
 
 ## Fas 5 — Brand identity: logo, favicon, navbar (KLAR)
 

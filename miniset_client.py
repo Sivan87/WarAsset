@@ -14,6 +14,7 @@ Viktigt att komma ihåg vid ändringar:
   UI:t (bakgrundstriggern vid spara + den manuella "hämta bild"-knappen
   delar samma lås).
 """
+import os
 import re
 import threading
 import time
@@ -23,10 +24,67 @@ import requests
 from bs4 import BeautifulSoup
 from rapidfuzz import fuzz
 
+import database as db
+
 BASE_URL = "https://miniset.net"
 USER_AGENT = "WarAsset/1.0 (privat icke-kommersiellt inventeringsverktyg; github.com/Sivan87/WarAsset)"
 REQUEST_TIMEOUT_SECONDS = 20
 MIN_REQUEST_INTERVAL_SECONDS = 10
+
+# Fas 4c incident (fas4c-warasset-miniset-incident.md, CLAUDE.md "Fas 4c"):
+# miniset.net's own bot-protection flagged the Unraid server's IP despite
+# the 10-second global rate-limit below being correctly shared across all
+# call paths (verified by code audit during the incident — not a gap/lock
+# bug). The container's stdout logs from before the incident were already
+# gone by the time it was investigated (a routine redeploy recreates the
+# container, and Docker's default log driver doesn't survive that), so the
+# exact request timeline could not be forensically reconstructed. The most
+# plausible cause given what evidence remained: cumulative REQUEST VOLUME
+# during the compressed Fas 4/4b development+test cycle (many correctly
+# 10-second-spaced but still numerous curl/Playwright runs against the
+# live site, from one static IP, one fixed User-Agent, systematically
+# walking category/pagination pages) — a classic bot signature to a
+# volume-aware WAF even when no single request violates the crawl-delay.
+# Response to that: detect the block by its own wording (status code was
+# never confirmed, so don't gate on one) and back off for a configurable
+# cooldown, shared by every call path, persisted so a redeploy can't reset
+# it — see MinisetBlockedError/_looks_blocked/_raise_if_blocked below.
+_BLOCK_TEXT_MARKERS = ("temporarily restricted", "suspicious automated activity")
+BLOCK_COOLDOWN_HOURS = float(os.environ.get("MINISET_BLOCK_COOLDOWN_HOURS", "48"))
+_BLOCK_REASON = "miniset.net returned its 'suspicious automated activity' restricted-access page"
+
+
+class MinisetBlockedError(Exception):
+    """Raised by _rate_limited_get — either a fresh block was just detected,
+    or an earlier one is still in its cooldown window. Callers (match_unit,
+    fetch_product_image) catch this and turn it into a {"blocked": True,
+    ...} result instead of letting it look like an ordinary fetch failure,
+    so the UI/background trigger can tell the two apart (see CLAUDE.md,
+    Fas 4c)."""
+
+    def __init__(self, blocked_until, reason):
+        super().__init__(f"miniset.net access is in cooldown until {blocked_until} ({reason})")
+        self.blocked_until = blocked_until
+        self.reason = reason
+
+
+def _looks_blocked(resp):
+    """Text-based detection, not status-code-based: the actual status code
+    miniset.net used for the block page was never confirmed (the incident
+    was investigated after the fact, see the module-level comment above),
+    so gating on a guessed code (403/429/...) risked missing it entirely.
+    Requires BOTH marker phrases from Sivan's literal observed wording
+    ("Access to this page has been temporarily restricted due to
+    suspicious automated activity from your network address") to avoid a
+    coincidental false positive from a single common phrase."""
+    text = (resp.text or "").lower()
+    return all(marker in text for marker in _BLOCK_TEXT_MARKERS)
+
+
+def _raise_if_blocked():
+    block = db.get_miniset_block()
+    if block:
+        raise MinisetBlockedError(block["blocked_until"], block["reason"])
 
 # WarAssets egna game_system.key -> miniset.nets URL-slug för spellinjen.
 # Bekräftat genom att hämta https://miniset.net/sets/games-workshop live
@@ -84,16 +142,38 @@ def _rate_limited_get(url):
     """Se modulens docstring om rate-limit-garantin. Uppdaterar tidsstämpeln
     EFTER att svaret (eller felet) kommit in, inte innan anropet skickas —
     en strängare tolkning av "10 sekunders crawl-delay" som håller kravet
-    även om ett enskilt anrop mot miniset.net skulle vara ovanligt långsamt."""
+    även om ett enskilt anrop mot miniset.net skulle vara ovanligt långsamt.
+
+    Fas 4c: also the single choke point for the circuit breaker (checked
+    once before even queueing for the lock, and again right after
+    acquiring it — the second check closes the race where the request
+    immediately ahead of us in the queue is the one that just tripped the
+    block) and for the durable request log (see database.py's
+    miniset_requests table)."""
     global _last_request_finished_at
+    _raise_if_blocked()
     with _rate_lock:
+        _raise_if_blocked()
         wait = MIN_REQUEST_INTERVAL_SECONDS - (time.monotonic() - _last_request_finished_at)
         if wait > 0:
             time.sleep(wait)
         try:
-            return requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT_SECONDS)
+            resp = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT_SECONDS)
+        except requests.RequestException as e:
+            db.log_miniset_request(url, status_code=None, error=str(e))
+            raise
         finally:
             _last_request_finished_at = time.monotonic()
+
+        if _looks_blocked(resp):
+            blocked_until = db.set_miniset_block(reason=_BLOCK_REASON, cooldown_hours=BLOCK_COOLDOWN_HOURS)
+            db.log_miniset_request(url, status_code=resp.status_code, blocked=True)
+            print(f"[miniset_client] BLOCKED by miniset.net (status {resp.status_code}) at {url} "
+                  f"— cooldown until {blocked_until}")
+            raise MinisetBlockedError(blocked_until, _BLOCK_REASON)
+
+        db.log_miniset_request(url, status_code=resp.status_code)
+        return resp
 
 
 def _slugify(text):
@@ -286,6 +366,8 @@ def fetch_product_image(source_url):
         )}
     try:
         resp = _rate_limited_get(url)
+    except MinisetBlockedError as e:
+        return {"error": str(e), "blocked": True, "blocked_until": e.blocked_until}
     except requests.RequestException as e:
         return {"error": f"Could not reach miniset.net: {e}"}
     if resp.status_code != 200:
@@ -329,14 +411,17 @@ def match_unit(system_key, catalogue_name, entry_name, role=None):
 
     best_score = -1
     best_entry = None
-    for category_slug, page in attempts:
-        entries = _fetch_category(game_line_slug, faction_slug, category_slug, page)
-        for entry in entries:
-            score = fuzz.WRatio(entry_name, entry["name"])
-            if score > best_score:
-                best_score, best_entry = score, entry
-        if best_score >= 97:
-            break  # nära-perfekt träff — inget skäl att göra fler anrop
+    try:
+        for category_slug, page in attempts:
+            entries = _fetch_category(game_line_slug, faction_slug, category_slug, page)
+            for entry in entries:
+                score = fuzz.WRatio(entry_name, entry["name"])
+                if score > best_score:
+                    best_score, best_entry = score, entry
+            if best_score >= 97:
+                break  # nära-perfekt träff — inget skäl att göra fler anrop
+    except MinisetBlockedError as e:
+        return {"matched": False, "blocked": True, "blocked_until": e.blocked_until, "reason": str(e)}
 
     if best_entry and best_score >= MATCH_THRESHOLD:
         return {
