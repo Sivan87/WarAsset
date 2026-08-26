@@ -17,6 +17,7 @@ from flask import Blueprint, Response, abort, jsonify, request, send_from_direct
 
 import bsdata_sync
 import database as db
+import miniset_client
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -111,6 +112,89 @@ def api_get_entry(entry_id):
 VALID_STATUSES = set(db.STATUSES)
 
 
+# ---------------------------------------------------------------------------
+# Referensbild från miniset.net (Fas 4, se fas4-warasset-miniset-bilder.md)
+# ---------------------------------------------------------------------------
+
+def _trigger_auto_image_fetch(unit):
+    """Startar en bakgrundsmatchning mot miniset.net efter att en enhet
+    sparats/länkats mot en BSData-entry, om ingen bild redan hämtats eller
+    försökts hämtas (image_checked_at). Körs ALDRIG synkront i request-
+    tråden — matchningen kan ta upp till ~30 sekunder pga rate-limitet mot
+    miniset.net (se miniset_client.py), och kickoff-dokumentet kräver
+    uttryckligen att detta inte blockerar spara-anropet. Ett fel här får
+    aldrig krascha bakgrundstråden eller synas för användaren — det är bara
+    en "best effort"-förbättring, inte en kritisk del av att spara enheten."""
+    if not unit or unit.get("image_url") or unit.get("image_checked_at"):
+        return
+    if not unit.get("entry_id") or not unit.get("system_key") or not unit.get("catalogue_name"):
+        return
+
+    unit_id = unit["id"]
+    system_key = unit["system_key"]
+    catalogue_name = unit["catalogue_name"]
+    entry_name = unit.get("entry_name") or unit.get("name")
+    role = unit.get("role")
+
+    def _run():
+        try:
+            result = miniset_client.match_unit(
+                system_key=system_key, catalogue_name=catalogue_name, entry_name=entry_name, role=role
+            )
+            if result.get("matched"):
+                db.set_unit_image(unit_id, result["image_url"], result["image_source_url"])
+            else:
+                db.mark_unit_image_checked(unit_id)
+        except Exception as e:
+            print(f"[api] Automatisk bildmatchning misslyckades för enhet {unit_id}: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+@api_bp.route("/units/<int:unit_id>/fetch-image", methods=["POST"])
+def api_fetch_unit_image(unit_id):
+    """Explicit "Hämta/matcha om bild"-knapp i UI:t. Körs SYNKRONT (till
+    skillnad från auto-triggern ovan) eftersom anropet självt är den
+    explicita handlingen — svarar när matchningen är klar, kan ta upp till
+    ~30 sekunder pga rate-limitet mot miniset.net (se miniset_client.py).
+    Ignorerar image_checked_at-cachen medvetet (till skillnad från
+    auto-triggern): en manuell begäran ska alltid försöka igen."""
+    unit = db.get_unit(unit_id)
+    if not unit:
+        return jsonify({"error": "Enheten hittades inte"}), 404
+    if not unit.get("entry_id") or not unit.get("system_key") or not unit.get("catalogue_name"):
+        return jsonify({"matched": False, "reason": "Ingen BSData-koppling"})
+
+    result = miniset_client.match_unit(
+        system_key=unit["system_key"],
+        catalogue_name=unit["catalogue_name"],
+        entry_name=unit.get("entry_name") or unit.get("name"),
+        role=unit.get("role"),
+    )
+    if result.get("matched"):
+        db.set_unit_image(unit_id, result["image_url"], result["image_source_url"])
+    else:
+        db.mark_unit_image_checked(unit_id)
+
+    updated = db.get_unit(unit_id)
+    return jsonify({
+        "matched": bool(result.get("matched")),
+        "image_url": updated.get("image_url"),
+        "image_source_url": updated.get("image_source_url"),
+    })
+
+
+@api_bp.route("/units/<int:unit_id>/image", methods=["DELETE"])
+def api_delete_unit_image(unit_id):
+    """Rensar en felaktig automatisk matchning. Rör aldrig photo_path (eget
+    uppladdat foto) — separata fält, se produktbeslutet i
+    fas4-warasset-miniset-bilder.md."""
+    if not db.get_unit(unit_id):
+        return jsonify({"error": "Enheten hittades inte"}), 404
+    db.clear_unit_image(unit_id)
+    return jsonify(db.get_unit(unit_id))
+
+
 @api_bp.route("/units", methods=["GET"])
 def api_list_units():
     system_key = request.args.get("system")
@@ -172,6 +256,7 @@ def api_create_unit():
         status=status,
         photo_path=data.get("photo_path"),
     )
+    _trigger_auto_image_fetch(unit)
     return jsonify(unit), 201
 
 
@@ -223,6 +308,7 @@ def api_update_unit(unit_id):
             return jsonify({"error": "Kan inte nolla entry_id utan att sätta name_override"}), 400
 
     unit = db.update_unit(unit_id, **fields)
+    _trigger_auto_image_fetch(unit)
     return jsonify(unit)
 
 

@@ -98,6 +98,9 @@ def init_db():
             points_override INTEGER,
             status TEXT NOT NULL DEFAULT 'unbuilt',
             photo_path TEXT,
+            image_url TEXT,
+            image_source_url TEXT,
+            image_checked_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
@@ -105,6 +108,7 @@ def init_db():
     """)
     conn.commit()
     _migrate_add_entries_profiles(conn)
+    _migrate_add_collection_units_image_fields(conn)
     conn.close()
 
 
@@ -117,6 +121,20 @@ def _migrate_add_entries_profiles(conn):
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(entries)").fetchall()}
     if "profiles" not in cols:
         conn.execute("ALTER TABLE entries ADD COLUMN profiles TEXT NOT NULL DEFAULT '[]'")
+        conn.commit()
+
+
+def _migrate_add_collection_units_image_fields(conn):
+    """Fas 4: image_url/image_source_url/image_checked_at (miniset.net-
+    referensbilder) fanns inte i Fas 1-3:s schema. Samma mönster som
+    _migrate_add_entries_profiles ovan, men på collection_units eftersom
+    bilderna är kopplade till Sivans ägda enheter, inte BSData-katalogen
+    (se produktbeslutet i fas4-warasset-miniset-bilder.md om varför)."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(collection_units)").fetchall()}
+    if "image_url" not in cols:
+        conn.execute("ALTER TABLE collection_units ADD COLUMN image_url TEXT")
+        conn.execute("ALTER TABLE collection_units ADD COLUMN image_source_url TEXT")
+        conn.execute("ALTER TABLE collection_units ADD COLUMN image_checked_at TEXT")
         conn.commit()
 
 
@@ -396,3 +414,30 @@ def delete_unit(unit_id):
         conn.execute("DELETE FROM collection_units WHERE id = ?", (unit_id,))
         conn.commit()
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# collection_units — miniset.net-referensbild (Fas 4)
+# ---------------------------------------------------------------------------
+
+def set_unit_image(unit_id, image_url, image_source_url):
+    """Sparar en lyckad matchning. image_checked_at sätts samtidigt så
+    en efterföljande sidladdning inte matchar om enheten i onödan (se
+    "Cacha resultatet" i fas4-warasset-miniset-bilder.md)."""
+    return update_unit(unit_id, image_url=image_url, image_source_url=image_source_url, image_checked_at=now_iso())
+
+
+def mark_unit_image_checked(unit_id):
+    """Cachar ett NEGATIVT resultat (ingen träff hittad) — image_url förblir
+    NULL, men image_checked_at sätts så vi inte försöker igen vid varje
+    sidladdning. En manuell 'hämta om'-knapp ignorerar den här cachen och
+    anropar match_unit på nytt ändå."""
+    return update_unit(unit_id, image_checked_at=now_iso())
+
+
+def clear_unit_image(unit_id):
+    """Nollställer en felaktig automatisk matchning till 'aldrig kontrollerad'
+    igen (inte bara 'kontrollerad, ingen träff') — så en framtida sparning av
+    enheten kan trigga automatchningen på nytt. Rör aldrig photo_path (eget
+    uppladdat foto), separat fält enligt produktbeslutet."""
+    return update_unit(unit_id, image_url=None, image_source_url=None, image_checked_at=None)

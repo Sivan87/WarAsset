@@ -56,17 +56,31 @@ body { padding-bottom: var(--space-8); }
 }
 .unit-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
 .unit-photo {
+  position: relative;
   height: 120px; display: flex; align-items: center; justify-content: center;
   background: repeating-linear-gradient(135deg, var(--color-neutral-900), var(--color-neutral-900) 10px, var(--color-bg) 10px, var(--color-bg) 20px);
 }
 .unit-photo img { width: 100%; height: 100%; object-fit: cover; }
 .unit-photo-label { font-family: ui-monospace, Menlo, monospace; font-size: 10px; letter-spacing: 0.06em; color: color-mix(in srgb, var(--color-text) 35%, transparent); }
+/* Fas 4: diskret källhänvisning när unit-photo visar en miniset.net-bild
+   istället för ett eget uppladdat foto, se unitPhotoHtml() i app.js. */
+.unit-image-credit {
+  position: absolute; right: 0; bottom: 0; left: 0;
+  padding: 2px var(--space-2); font-size: 10px; text-align: right;
+  color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
+  text-decoration: none;
+  /* unit-photo har .lighten (mix-blend-mode: lighten, för äkta uppladdade
+     foton mot Nocturnes mörka bakgrund) — utan detta skulle den mörka
+     gradienten här bli osynlig, blandad bort mot en mörk sida. */
+  mix-blend-mode: normal;
+}
+.unit-image-credit:hover { text-decoration: underline; }
 .unit-card-body { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
 .unit-card-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .unit-card-name { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 16px; line-height: 1.25; }
 .unit-card-meta { display: flex; align-items: center; gap: var(--space-3); font-size: 12px; color: color-mix(in srgb, var(--color-text) 60%, transparent); }
 .unit-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; }
-.unit-card-actions { display: flex; gap: var(--space-2); }
+.unit-card-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 /* — status tag — */
 .status-tag.tag-accent { animation: pulseGlow 2.6s ease-in-out infinite; }

@@ -68,5 +68,9 @@ if __name__ == "__main__":
 
     # host="0.0.0.0" gör servern nåbar från andra enheter på hemnätverket.
     # Port 5001 (inte 5000) för att inte krocka med BrickRadar på samma
-    # Unraid-server, se docker-compose.yml.
-    app.run(host="0.0.0.0", port=5001, debug=False)
+    # Unraid-server, se docker-compose.yml. threaded=True (Fas 4): utan den
+    # blockerar Flasks inbyggda dev-server ALLA andra requests medan
+    # POST /api/units/<id>/fetch-image väntar in miniset.net:s rate-limit
+    # (upp till ~30 sekunder, se miniset_client.py) — inte bara den enskilda
+    # klienten som frågade efter bilden.
+    app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)

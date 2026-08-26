@@ -5,12 +5,14 @@ Sigmar). Python/Flask + SQLite, en enda Docker-container, driftsatt på
 Unraid, öppet på det interna hemnätverket utan inloggning — samma mönster
 som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
-**Status: Fas 1 (grunddatabas + BSData-synk + API), Fas 2 (UI) och Fas 3
-(enhetsdetalj/datasheet-vy) är ALLA KLARA.** Kickoff-dokumenten ligger kvar
-i repot: `fas1-warasset-grunddata-bsdata.md` (backend),
-`fas1b-warasset-deploy.md` (GitHub-koppling + deploy), `fas2-warasset-ui.md`
-(UI) och `fas3-warasset-stats-popover.md` (enhetsdetalj — filnamnet
-nämner "popover" men den UI:t landade på är en fullstor dialog, se nedan).
+**Status: Fas 1 (grunddatabas + BSData-synk + API), Fas 2 (UI), Fas 3
+(enhetsdetalj/datasheet-vy) och Fas 4 (referensbilder från miniset.net) är
+ALLA KLARA.** Kickoff-dokumenten ligger kvar i repot:
+`fas1-warasset-grunddata-bsdata.md` (backend), `fas1b-warasset-deploy.md`
+(GitHub-koppling + deploy), `fas2-warasset-ui.md` (UI),
+`fas3-warasset-stats-popover.md` (enhetsdetalj — filnamnet nämner "popover"
+men den UI:t landade på är en fullstor dialog, se nedan) och
+`fas4-warasset-miniset-bilder.md` (referensbilder).
 
 ## Produktbeslut
 
@@ -598,3 +600,208 @@ server) — `collection_units` bekräftat orört i båda fallen,
 `entries.profiles` ifyllt för stickprov (Plague Marines 40k, Liberators
 AoS, Dire Avenger Kill Team, alla manuellt kontrollerade mot sina
 källfiler ovan).
+
+## Fas 4 — Referensbilder från miniset.net (KLAR)
+
+Enheter utan eget uppladdat foto kan visa en produktbild från
+[miniset.net](https://miniset.net/) som fallback, matchad on-demand mot
+Sivans faktiska samling (inte hela BSData-katalogen). Kickoff-dokumentet
+ligger kvar som `fas4-warasset-miniset-bilder.md`. All matchningslogik bor i
+en ny modul, `miniset_client.py` — databasschemat, synken och
+BSData-API:et är oförändrade av den här fasen.
+
+### Juridiskt/etiskt — hur det faktiskt implementerades
+
+Bilderna är GW:s produktfoton, bara VISADE av miniset.net (icke-kommersiell
+"collectors guide"). Ingen bildfil laddas någonsin ner eller lagras —
+`collection_units.image_url` pekar rakt på miniset.nets egen filserver
+(hotlink) och webbläsaren hämtar bilden direkt därifrån när sidan visas,
+precis som kickoff-dokumentet krävde. Bara URL:en cachas (i databasen),
+aldrig bildinnehållet.
+
+### URL-struktur (verifierad live under utvecklingen, gissa inte)
+
+- **Spellinje:** `/sets/games-workshop/<spellinje-slug>`, bekräftat:
+  `warhammer-40k` (40k), `kill-team` (Kill Team), `warhammer-age-of-sigmar`
+  (AoS) — `GAME_LINE_SLUGS` i `miniset_client.py`.
+- **Fraktion:** `/sets/games-workshop/<spellinje-slug>/<fraktion-slug>`
+  listar alla produkter för fraktionen (osorterad relevans-/nyhetsordning,
+  INTE alfabetisk — viktigt för pagineringsbeslutet nedan), med
+  pagineringslänkar `.../<fraktion-slug>/page-2`, `page-3`, osv.
+- **Underkategori (bara vissa 40k-fraktioner):**
+  `/sets/games-workshop/warhammer-40k/<fraktion-slug>/<kategori-slug>/`
+  (obs avslutande snedstreck) — en mycket mindre, riktad produktlista.
+  Verifierat: Death Guards `infantry`-underkategori gav 2 produkter (varav
+  "Plague Marines"), mot 151 på huvudfraktionssidan. Kategorierna är GW:s
+  ÄLDRE force-org-liknande indelning (`troops`/`elites`/`hq`/`vehicles`/
+  `fast-attack`/`heavy-support`/`dedicated-transport`/`characters`/
+  `monstrous-creatures`/...), verifierad mot en Space Marines-fraktionssida.
+  **Kill Team och AoS saknar den här indelningen** (verifierat: både en
+  Kill Team- och en AoS-fraktionssida gav bara `/none/` som underkategori)
+  — se matchningsalgoritmen nedan för hur det hanteras.
+- **Produktsida:** `/sets/<produkt-id>` (t.ex. `/sets/gw-99120102128`).
+  **Användes till slut INTE** — se nästa punkt.
+- **Bild hämtas direkt från listningssidan, inte produktsidan.** Varje
+  produkt på en fraktions-/kategorisida ligger i en
+  `<div class="set-<nod-id>">` med produktnamn+länk i ett nästlat
+  `div.gallery_title a` och en länk till ORIGINALBILDEN (samma fil som
+  produktsidans huvudbild) i en nästlad `a.colorbox` (`href` till
+  `https://miniset.net/files/set/<produkt-id>-0.<ext>`). Att läsa ut bilden
+  direkt härifrån HALVERAR antalet requests per matchning jämfört med att
+  också besöka produktsidan — viktigt givet 10-sekunders-kravet nedan.
+  DOM-strukturen parsas med BeautifulSoup i
+  `miniset_client._parse_category_page`.
+- **Ingen fungerande textsökning hittades.** Ett `keys`-formulärfält i
+  sidhuvudet filtrerar INTE fraktionslistan i praktiken (testat: identisk
+  träfflista med och utan `keys`-parametern). En live-autocomplete-endpoint
+  (`/search_api_live_results/search_api_page_1`) testades också men gav
+  uppenbart ofiltrerade/orelaterade resultat oavsett query — troligen
+  beroende av Drupal-sessionstillstånd (`form_build_id`) som inte går att
+  återskapa med ett enkelt GET. Matchningen bygger därför uteslutande på
+  fraktions-/kategorilistning + lokal fuzzy-matchning, inte serverside-sök.
+
+### Matchningsalgoritm (`miniset_client.match_unit`)
+
+1. **Fraktionsslug från `catalogue_name`** (`miniset_client._faction_slug`)
+   — INTE en rak slugifiering, `catalogues.name` har olika form per
+   spelsystem (verifierat mot den riktiga databasen):
+   - 40k: alltid `"<Grand Alliance> - [<kapitel/underfraktion> - ]<Fraktion>"`
+     (t.ex. `"Chaos - Death Guard"`, `"Imperium - Adeptus Astartes - Space
+     Marines"`) → **sista** segmentet efter `" - "`.
+   - AoS: `"<Fraktion>[ - <underlista/warband>]"` (t.ex. `"Cities of Sigmar
+     - The Iron March"`) → **första** segmentet, omvänt mot 40k.
+     `"[LEGENDS]"`-bracket-taggar strippas innan uppdelningen.
+   - Kill Team: `catalogues.name` ÄR redan bara fraktionsnamnet.
+   - `_FACTION_SLUG_ALIASES`: en liten, INTE uttömmande alias-tabell för
+     kända namnskillnader gentemot miniset.net (hittills bara ett fall,
+     `asuryani` → `aeldari`, se "Kända begränsningar" i TODO.md).
+2. **Kategorigissning från roll, bara för 40k**
+   (`_category_candidates_for_role` + `_ROLE_CATEGORY_HINTS`): matchar
+   BSData:s roll-sträng (`entries.role`, t.ex. `"Battleline"`) mot
+   nyckelord och föreslår 1-2 kandidat-kategorislugs (t.ex.
+   `battleline|troop` → `troops`/`infantry`). Kill Team/AoS får ingen
+   gissning (ingen känd underkategori-taxonomi där, se ovan).
+3. **Anropsbudget** (`_MAX_REQUESTS_PER_MATCH = 3`): rollgissningarna
+   (0-2 för 40k) körs FÖRST (högst träffsäkerhet per request), och
+   återstående budget läggs på att PAGINERA den råa fraktionslistan
+   (sida 1, 2, ...) — bättre täckning än att bara titta på sida 1, särskilt
+   för Kill Team/AoS som saknar kategorigissning och därför får hela
+   budgeten till paginering. Stoppar tidigt om en näst-perfekt träff
+   (score ≥ 97) redan hittats, för att inte slösa requests i onödan.
+4. **Fuzzy-matchning:** `rapidfuzz.fuzz.WRatio(entry_name, produktnamn)`
+   för varje kandidat över alla hämtade sidor, bästa poäng vinner.
+   **Träffsäkerhetströskel: 75** (`MATCH_THRESHOLD`) — valt genom stickprov
+   under utvecklingen: en äkta näraträff ("Intercessor Squad" mot
+   miniset:s "Intercessors") hamnar strax under 76, medan obesläktade
+   produkter (t.ex. "Plague Marines" mot "Death Guard Battleforce: Vile
+   Vectorium") hamnar under 40 — 75 skiljer de två robust.
+
+### Rate-limit-implementationen
+
+`miniset_client._rate_limited_get`: ETT globalt `threading.Lock()` +
+en modulnivå-tidsstämpel (`_last_request_finished_at`, `time.monotonic()`).
+Varje anrop väntar tills minst `MIN_REQUEST_INTERVAL_SECONDS` (10) har
+passerat sedan FÖRRA anropets SVAR kom in (inte sedan det skickades) —
+en strängare tolkning som håller kravet även om ett enskilt anrop mot
+miniset.net skulle vara ovanligt långsamt. Samma lås delas av ALLA
+matchningar oavsett trigger (auto-vid-spara eller den manuella
+"Hämta bild"-knappen) — en enkel kö, inga parallella anrop mot sajten,
+precis som kickoff-dokumentet krävde. Mätt under utvecklingen: enstaka
+`match_unit()`-anrop tog 10.3-10.6 sekunder (dominerat av den påtvingade
+väntan, inte nätverkslatensen) när fler än ett anrop mot miniset.net
+gjordes.
+
+### Databasschema
+
+Tre nya nullable kolumner på `collection_units` (INTE på `entries` — se
+skälet i kickoff-dokumentet om att begränsa omfattningen till Sivans
+faktiska samling): `image_url`, `image_source_url`, `image_checked_at`.
+`database._migrate_add_collection_units_image_fields` lägger till dem för
+en databas skapad före Fas 4 (samma `PRAGMA table_info`-mönster som Fas
+3:s `_migrate_add_entries_profiles`), verifierat mot den riktiga,
+redan existerande dev-databasen.
+
+`image_checked_at` cachar BÅDE positiva och negativa resultat (en negativ
+matchning sätter bara `image_checked_at`, `image_url` förblir `NULL`) —
+så en enhet utan träff inte matchas om vid varje sidladdning eller
+`PUT`. `database.clear_unit_image` (används av `DELETE
+/api/units/<id>/image`) nollställer alla tre fälten till "aldrig
+kontrollerad", inte bara "kontrollerad, ingen träff" — så en framtida
+sparning av enheten kan trigga auto-matchningen på nytt.
+
+### API
+
+- `POST /api/units/<id>/fetch-image` — kör matchningen SYNKRONT (till
+  skillnad från auto-triggern, se nedan) eftersom anropet självt är den
+  explicita "Hämta bild"-handlingen i UI:t; svarar när matchningen är klar
+  (upp till ~30 sekunder, `_MAX_REQUESTS_PER_MATCH` × 10 sekunder).
+  Ignorerar `image_checked_at`-cachen medvetet — en manuell begäran ska
+  alltid försöka igen. Returnerar `{"matched": false, "reason": "Ingen
+  BSData-koppling"}` OMEDELBART (inget nätverksanrop) för enheter utan
+  `entry_id` (anpassade enheter) — det finns ingen fraktion att bygga en
+  miniset.net-URL mot.
+- `DELETE /api/units/<id>/image` — rensar en felaktig automatisk matchning
+  via `database.clear_unit_image`. Rör aldrig `photo_path` (eget
+  uppladdat foto) — separata fält.
+- `GET /api/units`/`GET /api/units/<id>` behövde INGEN kodändring —
+  `collection_units.*` i `_UNIT_SELECT` tar redan med de nya kolumnerna
+  automatiskt.
+- **Auto-trigger vid spara** (`api._trigger_auto_image_fetch`, anropad från
+  både `POST /api/units` och `PUT /api/units/<id>`): startar matchningen i
+  en daemon-bakgrundstråd (samma mönster som `POST /api/sync`) om enheten
+  har `entry_id` men varken `image_url` eller `image_checked_at` än. Körs
+  ALDRIG synkront — kickoff-dokumentet krävde uttryckligen att detta inte
+  får blockera spara-anropet. Fel i bakgrundstråden loggas men kraschar
+  aldrig och syns aldrig för användaren (best-effort-förbättring, inte en
+  kritisk del av att spara enheten).
+- `app.py`: `app.run(..., threaded=True)` lades till (fanns inte innan) —
+  utan den skulle Flasks inbyggda dev-server blockera ALLA andra requests
+  medan `POST /api/units/<id>/fetch-image` väntar in rate-limitet.
+
+### UI (`static/js/app.js`, `static/css/app.css`)
+
+- **Prioritetsordning för enhetsbild** (`unitPhotoHtml` i `app.js`, ny
+  funktion): (1) eget uppladdat foto (`photo_path`), (2) miniset.net-bild
+  (`image_url`, i samma `.lighten`-wrapper som ett riktigt foto skulle
+  använda + en diskret "Bild: miniset.net"-källänk längst ner i bilden,
+  länkad till `image_source_url`), (3) den ursprungliga "FOTO: {namn}"-
+  platshållaren. Separata fält — ett eget foto döljer alltid en ev.
+  miniset.net-bild i UI:t men rör aldrig `image_url` i databasen.
+  Källänken har `mix-blend-mode: normal` explicit (`.unit-image-credit` i
+  `app.css`) eftersom `.lighten` (`mix-blend-mode: lighten`) annars gör den
+  mörka textbakgrunds-gradienten osynlig mot Nocturnes mörka tema.
+- **"Hämta bild"/"Matcha om bild"-knapp** (`imageActionsHtml` i `app.js`):
+  en liten knapp PER ENHETSKORT (både galleri- och listvy), inte i
+  redigeringsdialogen — valt design (kickoff-dokumentet gav fritt val
+  mellan de två) eftersom det ger direkt åtkomst utan att öppna en dialog.
+  Bara synlig för enheter med `entry_id` (ingen fraktion att söka mot för
+  anpassade enheter). Text växlar till "Hämtar bild… (kan ta en stund)"
+  och knappen inaktiveras under anropet — tydligt att det bara är
+  långsamt med flit, inte trasigt (kickoff-dokumentets krav).
+  "Ta bort bild"-knappen visas bara när `image_url` redan är satt.
+- **Ingen bulk-knapp** (medvetet, se kickoff-dokumentet) — bara en knapp
+  per enhet, aldrig "hämta för alla".
+
+### Testat (Playwright + manuella `curl`-anrop)
+
+Mot en lokalt startad `python app.py` (samma venv-uppsättning som Fas 2/3).
+Manuella `curl`-anrop täckte: `POST /api/units` med en riktig Death Guard
+"Plague Marines"-`entry_id` → auto-triggern hämtade och sparade en korrekt
+`image_url`/`image_source_url` inom ~10 sekunder (bekräftat via en
+efterföljande `GET /api/units/<id>`); `DELETE .../image` → båda fälten
+och `image_checked_at` nollställda; `POST .../fetch-image` (manuell) →
+samma träff hämtad om, tidtagen till ~10.3 sekunder (`time curl`); en
+anpassad enhet (utan `entry_id`) → `fetch-image` svarade omedelbart
+(~0.05s) med `{"matched": false, "reason": "Ingen BSData-koppling"}`,
+inget nätverksanrop gjort. Playwright (samma improviserade uppsättning som
+Fas 2/3, ny `npm install playwright` + `npx playwright install chromium`
+i scratchpad) täckte hela UI-flödet i en riktig webbläsare: lägga till en
+Death Guard "Plague Marines" via sök-dialogen, vänta in auto-triggern,
+bekräfta att "Bild: miniset.net"-källänken syns på kortet, klicka
+"Ta bort bild" (källänken försvinner), klicka "Hämta bild" på nytt (växlar
+till laddningstext, sedan tillbaka med bilden återställd), och en anpassad
+enhet (visar platshållaren, ingen bild-knapp alls). Inga konsolfel.
+Skärmdump tagen och granskad visuellt (korrekt bildvisning, läsbar
+källänk, knapparna radbryter snyggt när båda visas). Alla testenheter
+raderade efteråt (`DELETE /api/units/<id>`) — databasen lämnad i samma
+skick som innan testningen.

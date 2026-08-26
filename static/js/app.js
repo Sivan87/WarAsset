@@ -137,14 +137,43 @@
     return 'tag tag-neutral status-tag';
   }
 
+  // Prioritetsordning för enhetsbild (Fas 4, se fas4-warasset-miniset-
+  // bilder.md uppgift 4): (1) eget uppladdat foto, (2) miniset.net-
+  // referensbild (med källänk), (3) den ursprungliga "FOTO: {namn}"-
+  // platshållaren. image_url/photo_path är separata fält — ett eget foto
+  // döljer alltid en ev. miniset.net-bild men rör den aldrig.
+  function unitPhotoHtml(u) {
+    if (u.photo_path) {
+      return `<div class="unit-photo lighten"><img src="${escapeHtml(u.photo_path)}" alt=""></div>`;
+    }
+    if (u.image_url) {
+      return `
+        <div class="unit-photo lighten">
+          <img src="${escapeHtml(u.image_url)}" alt="">
+          <a class="unit-image-credit" href="${escapeHtml(u.image_source_url || '#')}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Bild: miniset.net</a>
+        </div>`;
+    }
+    return `<div class="unit-photo"><span class="unit-photo-label">FOTO: ${escapeHtml(u.name)}</span></div>`;
+  }
+
+  // Ingen bulk-hämtning (medvetet, se kickoff-dokumentet) — bara en knapp
+  // per enhet, och bara för enheter med en BSData-koppling (utan entry_id
+  // finns ingen fraktion att söka miniset.net:s URL-struktur mot).
+  function imageActionsHtml(u) {
+    if (u.entry_id == null) return '';
+    const fetchLabel = u.image_url ? 'Matcha om bild' : 'Hämta bild';
+    const fetchBtn = `<button type="button" class="btn btn-ghost" data-action="fetch-image" data-unit-id="${u.id}">${fetchLabel}</button>`;
+    const deleteBtn = u.image_url
+      ? `<button type="button" class="btn btn-ghost" data-action="delete-image" data-unit-id="${u.id}">Ta bort bild</button>`
+      : '';
+    return fetchBtn + deleteBtn;
+  }
+
   function unitCardHtml(u) {
-    const photo = u.photo_path
-      ? `<div class="unit-photo lighten"><img src="${escapeHtml(u.photo_path)}" alt=""></div>`
-      : `<div class="unit-photo"><span class="unit-photo-label">FOTO: ${escapeHtml(u.name)}</span></div>`;
     const pointsLabel = u.computed_points == null ? '–' : (u.computed_points + ' p');
     return `
       <div class="unit-card card elev-sm">
-        ${photo}
+        ${unitPhotoHtml(u)}
         <div class="unit-card-body">
           <div class="unit-card-top">
             <div class="card-kicker">${escapeHtml(u.catalogue_name || 'Anpassad')}</div>
@@ -162,6 +191,9 @@
               <button type="button" class="btn btn-ghost" data-action="delete" data-unit-id="${u.id}">Ta bort</button>
             </div>
           </div>
+          <div class="unit-card-actions">
+            ${imageActionsHtml(u)}
+          </div>
         </div>
       </div>`;
   }
@@ -177,6 +209,7 @@
         <td class="actions">
           <button type="button" class="btn btn-ghost" data-action="edit" data-unit-id="${u.id}">Redigera</button>
           <button type="button" class="btn btn-ghost" data-action="delete" data-unit-id="${u.id}">Ta bort</button>
+          ${imageActionsHtml(u)}
         </td>
       </tr>`;
   }
@@ -729,6 +762,36 @@
   }
 
   // ---------------------------------------------------------------------
+  // Referensbild från miniset.net (Fas 4) — se fas4-warasset-miniset-
+  // bilder.md. Anropet kan ta upp till ~30 sekunder (rate-limit mot
+  // miniset.net, se miniset_client.py), därav den tydliga laddningstexten
+  // istället för en tyst spinner — annars ser det ut som att UI:t hängt sig.
+  // ---------------------------------------------------------------------
+
+  async function fetchUnitImage(unitId, btn) {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Hämtar bild… (kan ta en stund)';
+    try {
+      await api('/api/units/' + unitId + '/fetch-image', { method: 'POST' });
+      await loadUnits();
+    } catch (e) {
+      alert('Kunde inte hämta bild: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  async function deleteUnitImage(unitId) {
+    try {
+      await api('/api/units/' + unitId + '/image', { method: 'DELETE' });
+      await loadUnits();
+    } catch (e) {
+      alert('Kunde inte ta bort bilden: ' + e.message);
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // "Synka BSData nu" — pollar /api/game-systems tills last_synced_at
   // ändrats för alla tre system, se fas2-warasset-ui.md uppgift 4.
   // ---------------------------------------------------------------------
@@ -810,6 +873,10 @@
       if (delBtn) { deleteUnit(parseInt(delBtn.getAttribute('data-unit-id'), 10)); return; }
       const statsBtn = e.target.closest('[data-action="show-stats"]');
       if (statsBtn) { openViewDialog(parseInt(statsBtn.getAttribute('data-unit-id'), 10)); return; }
+      const fetchImgBtn = e.target.closest('[data-action="fetch-image"]');
+      if (fetchImgBtn) { fetchUnitImage(parseInt(fetchImgBtn.getAttribute('data-unit-id'), 10), fetchImgBtn); return; }
+      const delImgBtn = e.target.closest('[data-action="delete-image"]');
+      if (delImgBtn) { deleteUnitImage(parseInt(delImgBtn.getAttribute('data-unit-id'), 10)); return; }
     });
   }
 

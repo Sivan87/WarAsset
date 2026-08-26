@@ -162,3 +162,84 @@ oförändrade sedan innan ombygget.
   inte trasigt, men kan se lite fel ordnade ut tills listan utökas.
 - **Ingen ny run-skill** genererad trots samma improviserade Playwright-
   uppsättning som Fas 2 — samma öppna punkt som redan noterades där.
+
+## Fas 4 (referensbilder från miniset.net) — KLAR (2026-08-26)
+
+Se CLAUDE.md, avsnittet "Fas 4 — Referensbilder från miniset.net (KLAR)",
+för fullständig dokumentation: URL-strukturen som verifierades live,
+matchningsalgoritmen (`miniset_client.py`), rate-limit-implementationen,
+databasmigreringen och UI:t. Verifierat med samma improviserade Playwright-
+uppsättning som Fas 2/3, samt manuella `curl`-anrop mot ett riktigt körande
+`python app.py` (BSData redan synkad lokalt).
+
+### Verifierat under utvecklingen (riktig data, inte antaganden)
+
+- **40k, Death Guard "Plague Marines"** (`catalogue_name` = "Chaos - Death
+  Guard", role "Battleline"): rollgissningen ("troops") gav en 2-produkters
+  underkategori på FÖRSTA anropet, 100% träff mot `gw-99810102007`
+  ("Plague Marines"). Total tid ~10-11 sekunder (ett enda rate-limitat
+  anrop). Verifierat både via `miniset_client.match_unit()` direkt, via
+  `POST /api/units` (auto-trigger i bakgrunden) och via `POST
+  /api/units/<id>/fetch-image` (manuell, synkron).
+- **40k, Space Marines "Intercessor Squad"** (bas-fraktionsraden, INTE en
+  kapitel-specifik rad som Salamanders/Blood Angels): 100% träff mot
+  `gw-99120101309`.
+- **AoS, Stormcast Eternals "Liberators"**: fanns INTE på fraktionens
+  osorterade första sida (410 produkter totalt, sorterade efter
+  relevans/nyhet, inte alfabetiskt) — hittades på sida 2 efter att
+  paginerings-fallbacket lades till. 100% träff.
+- **Rate-limit mätt**: `_rate_limited_get` garanterar >= 10 sekunder mellan
+  att förra anropets svar kom in och att nästa skickas — bekräftat i
+  `time`-mätningar runt `match_unit()`-anrop (enstaka anrop ~10.3-10.6s,
+  dominerat av den påtvingade väntan, inte nätverkslatensen).
+- **Databasmigrering** (`_migrate_add_collection_units_image_fields`) körd
+  mot den riktiga, redan existerande utvecklings-databasen (`data/
+  warasset.db`, skapad under Fas 1-3) — kolumnerna las till, befintliga
+  `collection_units`-rader opåverkade.
+
+### Kända begränsningar i matchningen (flaggat enligt kickoff-dokumentets
+### avslutningskrav — INTE en garanterad bildkälla för hela samlingen)
+
+- **Kill Team har strukturellt låg träffsäkerhet.** Verifierat: miniset.net
+  katalogiserar Kill Team som LAGBOXAR ("Kill Team: Blades of Khaine",
+  "Kill Team: Nachmund", ...), inte enskilda operatörsnamn. En BSData-
+  operatör som "Dire Avenger" har därför sällan en direkt motsvarighet att
+  fuzzy-matcha mot, oavsett hur bra slug-/kategorigissningen är. Det här är
+  en begränsning i DATAKÄLLAN, inte i matchningslogiken — ingen känd fix
+  inom ramen för miniset.net.
+- **40k-fraktionsrader som bara existerar för att låna in generiska enheter**
+  (se CLAUDE.md Fas 1, "Katalog-sammanslagning" — t.ex. en `collection_unit`
+  registrerad under "Imperium - Adeptus Astartes - Salamanders" för
+  "Assault Intercessor Squad") missar ofta, eftersom miniset.net bara säljer
+  den generiska produkten under bas-fraktionen ("Space Marines"), inte under
+  varje enskilt kapitel. Verifierat: samma enhet, samma roll, 0% träff under
+  "Salamanders" men 100% träff under "Space Marines". Ingen kod-fix planerad
+  (skulle kräva att känna igen VILKA fraktioner som är "lånade" kataloger,
+  vilket i sin tur skulle kräva att spara den kopplingen från
+  `bsdata_sync.py` — utanför Fas 4:s scope).
+- **Namnskillnader mellan BSData:s katalognamn och miniset.nets slugs.**
+  Bara ETT konkret fall hittat och alias-fixat under utvecklingen
+  (`_FACTION_SLUG_ALIASES` i `miniset_client.py`: Kill Teams BSData-katalog
+  heter "Asuryani", miniset.net använder "aeldari"). Fler liknande
+  mismatchar upptäcks sannolikt i takt med att fler fraktioner faktiskt
+  registreras i samlingen — lägg till fler alias-poster i takt med att de
+  hittas, snarare än att bygga en uttömmande tabell i förväg.
+- **Kill Team/AoS saknar rollbaserade underkategorier på miniset.net**
+  (verifierat: både en Kill Team- och en AoS-fraktionssida gav bara "/none/"
+  som underkategori, till skillnad från 40k:s troops/elites/hq/vehicles/...).
+  Där paginerar matchningen istället igenom den råa fraktionslistans
+  FÖRSTA `_MAX_REQUESTS_PER_MATCH` (3) sidor — täcker fler produkter än en
+  enda sida, men en stor fraktion (t.ex. AoS Stormcast Eternals: 410
+  produkter, ~20/sida) kan fortfarande ha sin produkt på sida 4+, utanför
+  taket. En höjning av `_MAX_REQUESTS_PER_MATCH` skulle förbättra täckningen
+  linjärt men på bekostnad av längre väntetid per bildhämtning (10 sek/sida).
+- **40k:s rollgissning (`_ROLE_CATEGORY_HINTS`) är en approximation.**
+  BSData:s 10e-roller (Battleline/Character/Elite/...) mappas mot miniset:s
+  ÄLDRE, force-org-liknande kategorier (troops/hq/elites/...) — bara
+  stickprovskontrollerad mot ett fåtal roller (Battleline). Roller som
+  "Dedicated Transport"/"Fortification"/"Aircraft" har grova eller obefintliga
+  gissningar och faller tillbaka på den råa fraktionslistan.
+- **Ingen bulk-hämtning** (medvetet, se kickoff-dokumentet) — varje enhet
+  måste matchas individuellt, antingen automatiskt vid spara eller via
+  "Hämta/matcha om bild"-knappen.
+- **Ingen ny run-skill** genererad — samma öppna punkt som Fas 2/3.
