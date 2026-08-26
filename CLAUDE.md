@@ -5,10 +5,11 @@ Sigmar). Python/Flask + SQLite, en enda Docker-container, driftsatt på
 Unraid, öppet på det interna hemnätverket utan inloggning — samma mönster
 som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
-**Status: Fas 1 (grunddatabas + BSData-synk + API) och Fas 2 (UI) är BÅDA
-KLARA.** Kickoff-dokumenten ligger kvar i repot: `fas1-warasset-grunddata-
-bsdata.md` (backend), `fas1b-warasset-deploy.md` (GitHub-koppling + deploy)
-och `fas2-warasset-ui.md` (UI).
+**Status: Fas 1 (grunddatabas + BSData-synk + API), Fas 2 (UI) och Fas 3
+(stats-popover) är ALLA KLARA.** Kickoff-dokumenten ligger kvar i repot:
+`fas1-warasset-grunddata-bsdata.md` (backend), `fas1b-warasset-deploy.md`
+(GitHub-koppling + deploy), `fas2-warasset-ui.md` (UI) och
+`fas3-warasset-stats-popover.md` (stats-popover).
 
 ## Produktbeslut
 
@@ -30,13 +31,14 @@ individuella modeller.
 - **catalogues** — en rad per SPELBAR fraktion (BSData-katalog med
   `library="false"`). `bsdata_id` = katalogens egna `id`-attribut i XML:en
   (inte något separat "catalogueLink id"). `UNIQUE(game_system_id, bsdata_id)`.
-- **entries** — en rad per datasheet/enhet. `keywords` och `points_table`
-  lagras som JSON-text (avserialiseras till listor av `database.py` innan de
-  når API:et). `raw_source_ref` = `"<filnamn>::<bsdata-entry-id>"`, för
-  felsökning utan att gissa. `UNIQUE(catalogue_id, bsdata_id)` — samma
-  fysiska BSData-unit kan alltså finnas som FLERA rader om den är
-  tillgänglig för flera fraktioner (se "Katalog-sammanslagning" nedan) —
-  avsiktligt, matchar hur arméer faktiskt byggs i spelet.
+- **entries** — en rad per datasheet/enhet. `keywords`, `points_table` och
+  `profiles` (Fas 3, se nedan) lagras som JSON-text (avserialiseras till
+  listor av `database.py` innan de når API:et). `raw_source_ref` =
+  `"<filnamn>::<bsdata-entry-id>"`, för felsökning utan att gissa.
+  `UNIQUE(catalogue_id, bsdata_id)` — samma fysiska BSData-unit kan alltså
+  finnas som FLERA rader om den är tillgänglig för flera fraktioner (se
+  "Katalog-sammanslagning" nedan) — avsiktligt, matchar hur arméer faktiskt
+  byggs i spelet.
 - **collection_units** — Sivans faktiska samling. `entry_id` pekar på
   `entries` (nullable, se produktbeslutet ovan). `points_override`
   används dels för manuella specialfall, dels automatiskt av
@@ -392,3 +394,155 @@ träfflista visas korrekt), och radering (bekräftat både i UI och direkt
 mot `GET /api/units`). Inga konsolfel. En riktig run-skill för WarAsset är
 inte skapad — värt att göra via `/run-skill-generator` om UI:t byggs ut
 vidare.
+
+## Fas 3 — Stats-popover (KLAR)
+
+Klick på ett enhetsnamn (galleri- eller listvy) öppnar en popover med
+karaktäristik/vapenprofiler/förmågor för den BSData-post enheten är länkad
+till. Kickoff-dokumentet ligger kvar som `fas3-warasset-stats-popover.md`.
+
+### `entries.profiles` — struktur
+
+Ny kolumn på `entries`, JSON-text (avserialiseras till en lista av
+`database.py`, precis som `keywords`/`points_table`). Varje post:
+
+```json
+{"name": "Plague Marine", "type": "Unit", "characteristics": {"M": "5\"", "T": "6", "SV": "3+", "W": "2", "LD": "6+", "OC": "2"}}
+```
+
+`name`/`type` kommer rakt av från BSData:s egna `<profile name=...
+typeName=...>`-attribut — `typeName` är redan uppslaget klartext i XML:en
+(inget behov av att slå upp den mot `.gst`-filens `<profileTypes>`).
+`characteristics` är ett `namn → strängvärde`-objekt i samma ordning som
+XML:en (t.ex. M/T/SV/W/LD/OC för en 40k-enhet), byggt av
+`bsdata_sync._parse_profile_element`. Strukturen är MEDVETET generisk
+(inga hårdkodade kolumner à la `M`/`T`) eftersom karaktäristik-seten skiljer
+sig mellan spelsystemen — verifierat mot riktiga filer:
+
+| Spelsystem | `type`-värden som förekommer |
+|---|---|
+| 40k | `Unit`, `Ranged Weapons`, `Melee Weapons`, `Abilities` |
+| Kill Team | `Model`/`Operative`, `Weapon`/`Weapons`, `Ability`/`Abilities`, `Equipment`, `Unique Actions`, `Battle Honours`, `Battle Scars`, `Psychic Power` |
+| AoS | `Unit`, `Melee Weapon`, `Ranged Weapon`, `Ability (Activated)`, m.fl. |
+
+UI:t (se nedan) grupperar "vapenprofiler" separat genom att regex-matcha
+`type` mot `/weapon/i` — täcker alla varianterna ovan utan att behöva en
+hårdkodad lista.
+
+### Insamling av profiler (`bsdata_sync._collect_profiles`)
+
+En enhets fullständiga profillista byggs REKURSIVT från dess `structure_el`
+(samma element som redan användes för roll/nyckelord/modellantal), eftersom
+BSData:s vapenval i praktiken ligger flera `<selectionEntryGroups>`/
+`<entryLinks>`-nivåer under själva unit-entryn snarare än direkt på den
+(verifierat mot Death Guards "Plague Marines": Champion-modell →
+Wargear-grupp → "Plague knives options"-grupp → `entryLink` → vapnets egna
+`<profiles>`, fyra nivåer ner). Insamlingen täcker:
+
+1. Enhetens/nodens EGNA `<profiles><profile>`-element.
+2. Delade profiler nådda via `<infoLinks><infoLink type="profile"
+   targetId="...">` — samma indirektionsmönster som redan löstes för
+   AoS-poäng på `entryLink` i Fas 1, men för profiler som definieras en gång
+   i ett rot-nivå `<sharedProfiles>`-block och återanvänds av flera
+   selectionEntries (t.ex. en ledarmodells namngivna aura/specialregel).
+   Slås upp via `bsdata_sync._build_profile_index`, en global
+   `profile-id -> element`-uppslagning byggd med `root.iter("profile")`
+   (täcker både nästlade och rot-nivå-profiler i en enda pass).
+3. Rekursivt: samma insamling för varje nästlad `<selectionEntry>` (direkt
+   eller via `<entryLinks>`, uppslaget via den redan existerande
+   `entry_index` från Fas 1) och `<selectionEntryGroup>` under noden, med
+   ett djuptak (`_MAX_PROFILE_DEPTH = 10`, säkerhetsspärr — inte ett
+   förväntat gränsfall) och dedupe på profil-id
+   (`seen_profile_ids`)/nod-id (`visited_entries`) mot cirkulära/
+   dubbeldefinierade referenser.
+
+**Medveten konsekvens av det här (inte ett förbiseende):** popovern visar
+ALLA tillgängliga vapenprofiler/laddningsalternativ för en enhet (t.ex.
+Plague Marines: boltgevär, bultpistol, plasmagevär standard/överladdat,
+kraftnäve, pestknivar, ...), inte bara den utrustning som råkar vara vald.
+`collection_units` (se produktbeslutet högst upp i den här filen)
+registrerar bara ANTAL modeller per enhet, inte enskilda vapenval — samma
+registreringsnivå som resten av verktyget. Verifierat manuellt: Death
+Guards "Plague Marines" ger 17 profiler (1 statblock + 2 förmågor + 14
+vapenalternativ) som alla matchar källfilen
+(`data/bsdata/wh40k-10e/Chaos - Death Guard.cat`) vid stickprovskontroll.
+
+### Migrering av befintlig databas
+
+`database._migrate_add_entries_profiles` körs vid varje `init_db()`
+(appstart): `PRAGMA table_info(entries)`, och om `profiles`-kolumnen saknas
+körs `ALTER TABLE entries ADD COLUMN profiles TEXT NOT NULL DEFAULT '[]'`.
+Rör bara `entries` (som ändå skrivs om av nästa synk) — `collection_units`
+är, precis som alltid, orörd. Verifierat mot en handbyggd databas med
+Fas 1/2:s gamla schema (utan `profiles`-kolumnen) och en riktig
+`collection_units`-rad: kolumnen läggs till och raden överlever oförändrad.
+Efter migreringen krävs en full omsynk (`POST /api/sync` eller
+appstartens automatiska synk) för att fylla `profiles` på befintliga
+`entries`-rader — precis som kickoff-dokumentet förutsåg.
+
+### API
+
+Ingen ny endpoint. `GET /api/entries/<id>` returnerade redan hela
+entry-raden (`database.get_entry` → `_entry_row_to_dict`), så `profiles`
+följer med automatiskt sedan `_entry_row_to_dict` uppdaterades att
+`json.loads` den nya kolumnen — samma mönster som `keywords`/`points_table`.
+`GET /api/units/<id>` utökades INTE med nästlad entry-data (skulle
+duplicera data i varje `/api/units`-svar för inget syfte) — UI:t gör
+istället ett andra anrop mot `/api/entries/<entry_id>` när popovern öppnas,
+samma mönster som redan fanns i Fas 2:s redigera-enhet-flöde
+(`openEditDialog` i `app.js`).
+
+### UI (`static/js/app.js`, `static/css/app.css`, `templates/index.html`)
+
+- Enhetsnamnet i både galleri- (`.unit-card-name`) och listvy
+  (tabellcellen) är nu en `<button data-action="show-stats"
+  data-unit-id="...">` med klassen `.name-link` (bakgrund/kant borttagen,
+  ärver text, `:hover`/`:focus-visible` byter till `var(--color-accent)` +
+  understrykning — Nocturnes länkfärg, inte en knapp-look).
+- `#stats-popover` (nytt element, sist i `<body>` i `index.html`, UTANFÖR
+  `#groups-container` så den överlever `render()`s omritningar av
+  enhetslistan) — `position: fixed`, positionerad i JS relativt det
+  klickade namnets `getBoundingClientRect()`
+  (`positionStatsPopover`/`clampStatsPopoverPosition` i `app.js`, den senare
+  klampar mot viewportens kanter så popovern aldrig hamnar delvis utanför
+  skärmen).
+- Stängs vid: klick utanför (`document`-nivå click-listener,
+  `initStatsPopoverGlobalHandlers`), `Escape`-tangenten, och vid VARJE
+  `render()`-anrop (sök/filter/sortering/gruppcollapse/synk-klar — en
+  öppen popover hör naturligt ihop med ETT klickat namn, inte med en
+  huvudvy som just ritats om under den).
+- Klick på ett ANNAT enhetsnamn medan popovern är öppen byter innehåll utan
+  extra stängningsklick: click-delegeringen i `groups-container` (som
+  anropar `openStatsPopover`) körs FÖRE den globala "klick utanför"-
+  lyssnaren i samma bubblande klick-event, och den globala lyssnaren skippar
+  explicit klick på `[data-action="show-stats"]` — annars hade den hunnit
+  stänga popovern precis efter att den nya öppnats.
+- Anpassade enheter (`entry_id == null`): namnet ÄR klickbart (enhetlig
+  styling/kod, ingen extra villkorsgren i mallarna) men popovern visar
+  "Ingen BSData-koppling — anpassad enhet." istället för att göra ett
+  API-anrop — se `statsPopoverContentHtml` i `app.js`.
+- **Fas 2:s `[hidden]`-bugg** (se ovan) — `.stats-popover` sätter INGEN
+  `display`-egenskap i sin bas-regel, så den globala `[hidden] { display:
+  none !important; }`-fixen i `app.css` räcker för att popovern verkligen
+  är osynlig/icke-interaktiv i stängt läge. Verifierat explicit med
+  Playwright: `page.locator('#stats-popover').boundingBox()` returnerar
+  `null` när popovern är stängd (samma sorts regressionstest som Fas 2:s
+  bugg borde ha fångat).
+
+### Testat (Playwright, samma improviserade uppsättning som Fas 2)
+
+Mot en lokalt startad `python app.py` (venv-python, `.venv/Scripts/
+python.exe` — global `python` saknar `flask`/`python-dotenv`). Täckte:
+klick på "Plague Marines" → popover med korrekt statblock (M5"/T6/SV3+/
+W2/LD6+/OC2) + 2 förmågor + 14 vapenprofiler under en "VAPENPROFILER"-
+rubrik, stickprovskontrollerat mot källfilen; klick utanför → stängs; klick
+på ett annat enhetsnamn (en anpassad enhet) medan popovern är öppen →
+innehållet byts till "Ingen BSData-koppling"-meddelandet utan extra
+stängningsklick; `Escape` → stängs; `boundingBox()` är `null` i stängt
+läge (den explicita Fas 2-regressionskontrollen som kickoff-dokumentet bad
+om); fungerar identiskt från listvyn. Inga konsolfel. `POST /api/sync`
+kört om efter migreringen (både direkt via `bsdata_sync.run_full_sync()`
+och via det riktiga API:et mot en körande server) — `collection_units`
+bekräftat orört i båda fallen, `entries.profiles` ifyllt för stickprov
+(Plague Marines 40k, Liberators AoS, Dire Avenger Kill Team, alla
+manuellt kontrollerade mot sina källfiler ovan).

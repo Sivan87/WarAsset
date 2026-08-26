@@ -142,13 +142,34 @@ def _build_entry_index(catalogues):
     kataloger i repot. Behövs för att slå upp target för <entryLink>
     (se _direct_unit_entries) — targetId kan peka på ett element i en helt
     ANNAN fil än den som innehåller själva länken (typiskt: en fraktions
-    huvudfil länkar in en specifik enhet från "<Fraktion> - Library.cat")."""
+    huvudfil länkar in en specifik enhet från "<Fraktion> - Library.cat").
+    Täcker även <sharedSelectionEntries>-innehåll (t.ex. fristående
+    vapen-"upgrades" som operatörer/trupper länkar in via entryLink) — det
+    är fortfarande bara <selectionEntry>-taggar, bara i en annan
+    föräldratagg, så .iter("selectionEntry") hittar dem automatiskt."""
     index = {}
     for cat in catalogues.values():
         for el in cat["root"].iter("selectionEntry"):
             eid = el.get("id")
             if eid and eid not in index:
                 index[eid] = (el, cat["file"])
+    return index
+
+
+def _build_profile_index(catalogues):
+    """Global uppslagning profile-id -> element över ALLA <profile>-element
+    i repot (oavsett om de sitter nästlade i en selectionEntry eller i ett
+    rot-nivå <sharedProfiles>-block). Behövs för att slå upp target för
+    <infoLink type="profile"> (se _collect_profiles) — samma sorts
+    indirektion som _build_entry_index löser för <entryLink>, men för delade
+    profiler (t.ex. en ledarmodells namngivna specialregel/aura, definierad
+    en gång i <sharedProfiles> och återanvänd av flera selectionEntries)."""
+    index = {}
+    for cat in catalogues.values():
+        for el in cat["root"].iter("profile"):
+            pid = el.get("id")
+            if pid and pid not in index:
+                index[pid] = el
     return index
 
 
@@ -459,6 +480,118 @@ def _compute_points_table(cost_el, structure_el):
     return table, min_c, max_c
 
 
+def _parse_profile_element(profile_el):
+    """Ett <profile>-element till entries.profiles-formatet (se CLAUDE.md,
+    Fas 3): {"name": ..., "type": ..., "characteristics": {...}}. name/type
+    kommer rakt av från profilens egna name/typeName-attribut (typeName är
+    redan uppslaget klartext i XML:en, t.ex. "Unit"/"Ranged Weapons"/
+    "Abilities" i 40k, "Operative"/"Weapons" i Kill Team, "Unit"/"Melee
+    Weapon" i AoS — vi behöver alltså aldrig slå upp den mot .gst-filens
+    <profileTypes>). characteristics byggs i samma dokumentordning som
+    XML:en (Python-dictar är ordnade sedan 3.7), t.ex. M/T/SV/W/LD/OC för en
+    40k-enhet."""
+    characteristics = {}
+    chars_el = profile_el.find("characteristics")
+    if chars_el is not None:
+        for c in chars_el.findall("characteristic"):
+            name = c.get("name")
+            if name:
+                characteristics[name] = (c.text or "").strip()
+    return {"name": profile_el.get("name"), "type": profile_el.get("typeName"), "characteristics": characteristics}
+
+
+# Hur många nivåer av nästlade selectionEntries/selectionEntryGroups/
+# entryLinks _collect_profiles följer nedåt från en enhets structure_el
+# (vapenval sitter typiskt bakom 3-5 nivåer, se moduldocstring-exemplet med
+# Death Guards "Plague Champion" -> Wargear-grupp -> "Plague knives
+# options"-grupp -> entryLink -> vapnets egna profiler). Ett djuptak här är
+# bara en säkerhetsspärr mot orimligt djupt/cirkulärt nästlade filer, inte
+# ett förväntat gränsfall i praktiken.
+_MAX_PROFILE_DEPTH = 10
+
+
+def _collect_profiles(el, entry_index, profile_index, visited_entries=None, seen_profile_ids=None, depth=0):
+    """Samlar ALLA profiler (karaktäristik/vapen/förmågor) som hör till en
+    enhet: dess egna <profiles>, delade profiler nådda via
+    <infoLinks><infoLink type="profile"> (samma indirektionsmönster som
+    redan löstes för AoS-poäng på entryLink i Fas 1, se _build_profile_index
+    ovan), samt — rekursivt, eftersom en trupps vapenval i BSData:s XML
+    typiskt ligger flera <selectionEntryGroups>/<entryLinks>-nivåer under
+    själva unit-entryn snarare än direkt på den (se _MAX_PROFILE_DEPTH) —
+    profilerna för varje nästlad modell/vapen/uppgradering under enheten.
+
+    Det gör att t.ex. Plague Marines popover visar både trupp-statblocket
+    OCH samtliga tillgängliga vapenprofiler (boltgevär, plasmapistol,
+    kraftnäve, ...) — inte bara den utrustning som råkar vara vald just nu,
+    eftersom collection_units (se produktbeslutet i CLAUDE.md) bara
+    registrerar ANTAL modeller, inte enskilda vapenval. Det är en medveten
+    följd av verktygets registreringsnivå, inte ett förbiseende.
+
+    Dedupe:ar på profil-id (seen_profile_ids) så samma delade vapenprofil
+    inte dyker upp flera gånger om flera väljbara alternativ länkar till
+    samma mål. visited_entries skyddar mot cirkulära entryLink-kedjor."""
+    if visited_entries is None:
+        visited_entries = set()
+    if seen_profile_ids is None:
+        seen_profile_ids = set()
+    if depth > _MAX_PROFILE_DEPTH:
+        return []
+    el_id = el.get("id")
+    if el_id and el_id in visited_entries:
+        return []
+    if el_id:
+        visited_entries.add(el_id)
+
+    out = []
+
+    def _add(profile_el):
+        pid = profile_el.get("id")
+        if pid and pid in seen_profile_ids:
+            return
+        if pid:
+            seen_profile_ids.add(pid)
+        out.append(_parse_profile_element(profile_el))
+
+    profiles_el = el.find("profiles")
+    if profiles_el is not None:
+        for p in profiles_el.findall("profile"):
+            _add(p)
+
+    info_links_el = el.find("infoLinks")
+    if info_links_el is not None:
+        for link in info_links_el.findall("infoLink"):
+            if link.get("type") != "profile":
+                continue
+            target = profile_index.get(link.get("targetId"))
+            if target is not None:
+                _add(target)
+
+    for container_tag in ("selectionEntries", "sharedSelectionEntries"):
+        container = el.find(container_tag)
+        if container is None:
+            continue
+        for child in container.findall("selectionEntry"):
+            out.extend(_collect_profiles(child, entry_index, profile_index, visited_entries, seen_profile_ids, depth + 1))
+
+    entry_links_el = el.find("entryLinks")
+    if entry_links_el is not None:
+        for link in entry_links_el.findall("entryLink"):
+            if link.get("type") != "selectionEntry":
+                continue
+            target = entry_index.get(link.get("targetId"))
+            if target is None:
+                continue
+            target_el, _file = target
+            out.extend(_collect_profiles(target_el, entry_index, profile_index, visited_entries, seen_profile_ids, depth + 1))
+
+    groups_el = el.find("selectionEntryGroups")
+    if groups_el is not None:
+        for group in groups_el.findall("selectionEntryGroup"):
+            out.extend(_collect_profiles(group, entry_index, profile_index, visited_entries, seen_profile_ids, depth + 1))
+
+    return out
+
+
 def _role_and_keywords(unit_el):
     links_el = unit_el.find("categoryLinks")
     if links_el is None:
@@ -516,6 +649,7 @@ def _sync_one_game_system(conn, gs_row):
     repo_dir = _git_clone_or_pull(gs_row["bsdata_repo"])
     catalogues = _load_catalogues(repo_dir)
     entry_index = _build_entry_index(catalogues)
+    profile_index = _build_profile_index(catalogues)
     faction_catalogues = [c for c in catalogues.values() if not c["library"]]
     faction_catalogues = _dedupe_versioned_catalogues(faction_catalogues)
 
@@ -532,8 +666,9 @@ def _sync_one_game_system(conn, gs_row):
         for name, bsdata_id, cost_el, structure_el, source_file in _collect_entries_for_faction(cat, catalogues, entry_index):
             role, keywords = _role_and_keywords(structure_el)
             points_table, _min_c, _max_c = _compute_points_table(cost_el, structure_el)
+            profiles = _collect_profiles(structure_el, entry_index, profile_index)
             raw_source_ref = f"{source_file}::{bsdata_id}"
-            db.upsert_entry(conn, catalogue_db_id, bsdata_id, name, role, keywords, points_table, raw_source_ref)
+            db.upsert_entry(conn, catalogue_db_id, bsdata_id, name, role, keywords, points_table, profiles, raw_source_ref)
             seen_entry_bsids.add(bsdata_id)
             entry_count += 1
 

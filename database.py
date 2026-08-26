@@ -78,6 +78,7 @@ def init_db():
             role TEXT,
             keywords TEXT NOT NULL DEFAULT '[]',
             points_table TEXT NOT NULL DEFAULT '[]',
+            profiles TEXT NOT NULL DEFAULT '[]',
             raw_source_ref TEXT,
             UNIQUE(catalogue_id, bsdata_id)
         );
@@ -103,7 +104,20 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_collection_units_entry ON collection_units(entry_id);
     """)
     conn.commit()
+    _migrate_add_entries_profiles(conn)
     conn.close()
+
+
+def _migrate_add_entries_profiles(conn):
+    """Fas 3: entries.profiles fanns inte i Fas 1/2:s schema. CREATE TABLE IF
+    NOT EXISTS ovan rör inte en redan existerande entries-tabell, så en
+    databas skapad före Fas 3 saknar kolumnen tills den läggs till här.
+    Rör bara entries (skrivs om av synken ändå) — collection_units är, precis
+    som alltid, helt orörd av migreringen."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(entries)").fetchall()}
+    if "profiles" not in cols:
+        conn.execute("ALTER TABLE entries ADD COLUMN profiles TEXT NOT NULL DEFAULT '[]'")
+        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -179,14 +193,16 @@ def prune_missing_catalogues(conn, game_system_id, kept_bsdata_ids):
 # entries
 # ---------------------------------------------------------------------------
 
-def upsert_entry(conn, catalogue_id, bsdata_id, name, role, keywords, points_table, raw_source_ref):
+def upsert_entry(conn, catalogue_id, bsdata_id, name, role, keywords, points_table, profiles, raw_source_ref):
     conn.execute(
-        """INSERT INTO entries (catalogue_id, bsdata_id, name, role, keywords, points_table, raw_source_ref)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+        """INSERT INTO entries (catalogue_id, bsdata_id, name, role, keywords, points_table, profiles, raw_source_ref)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(catalogue_id, bsdata_id) DO UPDATE SET
                name = excluded.name, role = excluded.role, keywords = excluded.keywords,
-               points_table = excluded.points_table, raw_source_ref = excluded.raw_source_ref""",
-        (catalogue_id, bsdata_id, name, role, json.dumps(keywords), json.dumps(points_table), raw_source_ref),
+               points_table = excluded.points_table, profiles = excluded.profiles,
+               raw_source_ref = excluded.raw_source_ref""",
+        (catalogue_id, bsdata_id, name, role, json.dumps(keywords), json.dumps(points_table),
+         json.dumps(profiles), raw_source_ref),
     )
 
 
@@ -260,6 +276,7 @@ def _entry_row_to_dict(row):
     d = dict(row)
     d["keywords"] = json.loads(d.get("keywords") or "[]")
     d["points_table"] = json.loads(d.get("points_table") or "[]")
+    d["profiles"] = json.loads(d.get("profiles") or "[]")
     return d
 
 

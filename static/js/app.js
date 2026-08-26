@@ -26,6 +26,7 @@
     sortKey: 'name',
     collapsed: {},
     dialog: null,
+    statsPopover: null,
   };
 
   // ---------------------------------------------------------------------
@@ -149,7 +150,7 @@
             <div class="card-kicker">${escapeHtml(u.catalogue_name || 'Anpassad')}</div>
             <div class="tag tag-neutral">${escapeHtml(u.role || 'Övrigt')}</div>
           </div>
-          <div class="unit-card-name">${escapeHtml(u.name)}</div>
+          <button type="button" class="unit-card-name name-link" data-action="show-stats" data-unit-id="${u.id}">${escapeHtml(u.name)}</button>
           <div class="unit-card-meta">
             <span>${u.count} mod.</span>
             <span>${pointsLabel}</span>
@@ -169,7 +170,7 @@
     const pointsLabel = u.computed_points == null ? '–' : (u.computed_points + ' p');
     return `
       <tr>
-        <td>${escapeHtml(u.name)} <span class="name-sub">· ${escapeHtml(u.role || 'Övrigt')}</span></td>
+        <td><button type="button" class="name-link" data-action="show-stats" data-unit-id="${u.id}">${escapeHtml(u.name)}</button> <span class="name-sub">· ${escapeHtml(u.role || 'Övrigt')}</span></td>
         <td class="num">${u.count}</td>
         <td class="num">${pointsLabel}</td>
         <td class="center"><span class="${statusTagClass(u.status)}">${STATUS_LABEL[u.status]}</span></td>
@@ -228,6 +229,7 @@
   }
 
   function render() {
+    closeStatsPopover();
     renderStats();
     renderRoleOptions();
 
@@ -243,6 +245,130 @@
       empty.hidden = true;
       container.innerHTML = groups.map(groupHtml).join('');
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Stats-popover (Fas 3) — visas vid klick på ett enhetsnamn, positionerad
+  // relativt det klickade namnet (inte en centrerad modal som add/edit-
+  // dialogen). Stängs vid klick utanför/Escape/full omritning av
+  // huvudvyn (render(), se ovan) — inte vid klick på ett annat enhetsnamn,
+  // se initStatsPopoverGlobalHandlers() nedan: den öppningen byter bara
+  // innehåll utan en extra stängningsklick.
+  // ---------------------------------------------------------------------
+
+  function closeStatsPopover() {
+    if (!state.statsPopover) return;
+    state.statsPopover = null;
+    const pop = document.getElementById('stats-popover');
+    if (pop) pop.hidden = true;
+  }
+
+  function positionStatsPopover(triggerEl) {
+    const pop = document.getElementById('stats-popover');
+    const rect = triggerEl.getBoundingClientRect();
+    pop.style.top = (rect.bottom + 8) + 'px';
+    pop.style.left = rect.left + 'px';
+  }
+
+  function clampStatsPopoverPosition() {
+    const pop = document.getElementById('stats-popover');
+    if (pop.hidden) return;
+    const margin = 8;
+    const rect = pop.getBoundingClientRect();
+    let left = rect.left;
+    let top = rect.top;
+    if (rect.right > window.innerWidth - margin) left -= (rect.right - (window.innerWidth - margin));
+    if (left < margin) left = margin;
+    if (rect.bottom > window.innerHeight - margin) top -= (rect.bottom - (window.innerHeight - margin));
+    if (top < margin) top = margin;
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+
+  function profileBlockHtml(p) {
+    const rows = Object.entries(p.characteristics || {})
+      .map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
+      .join('');
+    return `
+      <div class="stats-profile">
+        <div class="stats-profile-head">
+          <span class="stats-profile-name">${escapeHtml(p.name || '')}</span>
+          <span class="tag tag-neutral">${escapeHtml(p.type || '')}</span>
+        </div>
+        <table class="stats-profile-table"><tbody>${rows}</tbody></table>
+      </div>`;
+  }
+
+  function statsPopoverContentHtml(u, sp) {
+    if (!u) return '';
+    let html = `
+      <div class="stats-popover-name">${escapeHtml(u.name)}</div>
+      <div class="stats-popover-meta">${escapeHtml(u.catalogue_name || 'Anpassad')} · ${escapeHtml(u.role || 'Övrigt')}</div>`;
+
+    if (u.entry_id == null) {
+      return html + '<p class="field-hint">Ingen BSData-koppling — anpassad enhet.</p>';
+    }
+    if (sp.loading) return html + '<p class="field-hint">Laddar…</p>';
+    if (sp.error) return html + `<p class="field-hint">${escapeHtml(sp.error)}</p>`;
+
+    const profiles = (sp.entry && sp.entry.profiles) || [];
+    if (!profiles.length) {
+      return html + '<p class="field-hint">Ingen profildata tillgänglig i BSData för den här posten.</p>';
+    }
+    const weapons = profiles.filter((p) => /weapon/i.test(p.type || ''));
+    const other = profiles.filter((p) => !/weapon/i.test(p.type || ''));
+    html += other.map(profileBlockHtml).join('');
+    if (weapons.length) {
+      html += '<div class="stats-popover-subhead">Vapenprofiler</div>' + weapons.map(profileBlockHtml).join('');
+    }
+    return html;
+  }
+
+  function renderStatsPopover() {
+    const sp = state.statsPopover;
+    const pop = document.getElementById('stats-popover');
+    if (!sp) { pop.hidden = true; return; }
+    const u = state.units.find((x) => x.id === sp.unitId);
+    pop.hidden = false;
+    document.getElementById('stats-popover-content').innerHTML = statsPopoverContentHtml(u, sp);
+    clampStatsPopoverPosition();
+  }
+
+  async function openStatsPopover(unitId, triggerEl) {
+    const u = state.units.find((x) => x.id === unitId);
+    if (!u) return;
+    state.statsPopover = { unitId, entry: null, loading: u.entry_id != null, error: null };
+    positionStatsPopover(triggerEl);
+    renderStatsPopover();
+    if (u.entry_id == null) return;
+    try {
+      const entry = await api('/api/entries/' + u.entry_id);
+      if (!state.statsPopover || state.statsPopover.unitId !== unitId) return; // stängd/bytt under tiden
+      state.statsPopover.entry = entry;
+      state.statsPopover.loading = false;
+      renderStatsPopover();
+    } catch (e) {
+      if (!state.statsPopover || state.statsPopover.unitId !== unitId) return;
+      state.statsPopover.loading = false;
+      state.statsPopover.error = 'Kunde inte hämta statistik: ' + e.message;
+      renderStatsPopover();
+    }
+  }
+
+  function initStatsPopoverGlobalHandlers() {
+    // Klick utanför stänger — men inte om klicket landade på en
+    // show-stats-länk (den hanteras av groups-container-delegeringen och
+    // byter redan innehåll; att stänga här också hade bara gett en
+    // stäng-öppna-flimmer).
+    document.addEventListener('click', (e) => {
+      if (!state.statsPopover) return;
+      if (e.target.closest('#stats-popover')) return;
+      if (e.target.closest('[data-action="show-stats"]')) return;
+      closeStatsPopover();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && state.statsPopover) closeStatsPopover();
+    });
   }
 
   // ---------------------------------------------------------------------
@@ -654,6 +780,8 @@
       if (editBtn) { openEditDialog(parseInt(editBtn.getAttribute('data-unit-id'), 10)); return; }
       const delBtn = e.target.closest('[data-action="delete"]');
       if (delBtn) { deleteUnit(parseInt(delBtn.getAttribute('data-unit-id'), 10)); return; }
+      const statsBtn = e.target.closest('[data-action="show-stats"]');
+      if (statsBtn) { openStatsPopover(parseInt(statsBtn.getAttribute('data-unit-id'), 10), statsBtn); return; }
     });
   }
 
@@ -730,6 +858,7 @@
     initToolbar();
     initGroupsDelegation();
     initDialogDelegation();
+    initStatsPopoverGlobalHandlers();
     loadUnits().catch((e) => {
       document.getElementById('groups-container').innerHTML = `<p class="empty-state">Kunde inte läsa enheter: ${escapeHtml(e.message)}</p>`;
     });

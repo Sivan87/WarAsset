@@ -112,6 +112,33 @@ body { padding-bottom: var(--space-8); }
 .photo-row .unit-photo { width: 72px; height: 56px; flex: none; border-radius: var(--radius-sm); }
 .field-hint { font-size: 11px; color: color-mix(in srgb, var(--color-text) 45%, transparent); }
 
+/* — stats-popover (Fas 3) — */
+.name-link {
+  background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit;
+  text-align: left; cursor: pointer;
+}
+.name-link:hover, .name-link:focus-visible { color: var(--color-accent); text-decoration: underline; }
+
+.stats-popover {
+  position: fixed; z-index: 60; width: 320px; max-width: calc(100vw - 16px);
+  max-height: 70vh; overflow-y: auto; padding: var(--space-4);
+}
+.stats-popover-name { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 16px; }
+.stats-popover-meta { font-size: 12px; color: color-mix(in srgb, var(--color-text) 60%, transparent); margin-bottom: var(--space-3); }
+.stats-popover-subhead {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent);
+  margin: var(--space-3) 0 var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--color-divider);
+}
+.stats-profile + .stats-profile { margin-top: var(--space-3); }
+.stats-profile-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: 4px; }
+.stats-profile-name { font-size: 13px; font-weight: 600; }
+.stats-profile-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.stats-profile-table th {
+  text-align: left; font-weight: 400; color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  padding: 2px var(--space-2) 2px 0; white-space: nowrap; vertical-align: top;
+}
+.stats-profile-table td { padding: 2px 0; word-break: break-word; }
+
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent); } 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 22%, transparent); } }
 @keyframes dialogIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }

@@ -119,3 +119,38 @@ titeln "WarAsset", alla tre statiska filer (`static/css/nocturne.css`,
 `static/css/app.css`, `static/js/app.js`) serveras korrekt, containern
 `warasset-warasset-1` kör. WarAsset är alltså komplett end-to-end: BSData-
 synk, sök-API, CRUD-API och nu ett riktigt UI, allt live.
+
+## Fas 3 (stats-popover) — KLAR (2026-08-26)
+
+Se CLAUDE.md, avsnittet "Fas 3 — Stats-popover (KLAR)", för fullständig
+dokumentation: `entries.profiles`-strukturen per spelsystem, den
+rekursiva profil-insamlingen i `bsdata_sync._collect_profiles`,
+databasmigreringen (`database._migrate_add_entries_profiles`) och
+UI-implementationen (klickbart enhetsnamn, positionerad popover, stäng-
+beteende). Verifierat med samma improviserade Playwright-uppsättning som
+Fas 2.
+
+### Öppna punkter / kända begränsningar (Fas 3)
+
+- **Popovern visar ALLA tillgängliga vapenprofiler/laddningsalternativ**,
+  inte bara den utrustning en spelare råkar ha valt — en medveten
+  konsekvens av att `collection_units` bara registrerar antal modeller, inte
+  enskilda vapenval (samma registreringsnivå som resten av verktyget). Kan
+  uppfattas som "för mycket information" för enheter med många alternativ
+  (Plague Marines: 17 profiler) — inte åtgärdat, se CLAUDE.md.
+- **`_MAX_PROFILE_DEPTH = 10`** i `bsdata_sync.py` är en säkerhetsspärr mot
+  orimligt djup/cirkulär nästling, inte grundligt stresstestad mot alla
+  ~11 000 entries i de tre repona (bara stickprovskontrollerad: Plague
+  Marines 40k, Liberators AoS, Dire Avenger Kill Team). Om framtida
+  BSData-ändringar nästlar vapenval djupare än så tappas de tysta
+  (returnerar bara tomt för den grenen, kraschar inte synken).
+- **Popoverns positionering** (`position: fixed` relativt det klickade
+  namnet, klampad mot viewportens kanter) kan i teorin täcka andra
+  enhetskort i en tät galleri-vy om profillistan är lång (t.ex. Plague
+  Marines 17 profiler) — inte ett problem för "klicka på ett annat namn"-
+  kravet i sig (namnet finns fortfarande kvar i DOM:en och går att nå), men
+  kan kännas trångt rent visuellt. Inte åtgärdat (skulle t.ex. kunna lösas
+  med en maxhöjd + smartare positionering ovanför/vid sidan om triggern om
+  det visar sig störa i praktiken).
+- **Ingen ny run-skill** genererad trots samma improviserade Playwright-
+  uppsättning som Fas 2 — samma öppna punkt som redan noterades där.
