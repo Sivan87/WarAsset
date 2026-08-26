@@ -192,6 +192,7 @@ def api_fetch_unit_image(unit_id):
         "matched": bool(result.get("matched")),
         "image_url": updated.get("image_url"),
         "image_source_url": updated.get("image_source_url"),
+        "image_source": updated.get("image_source"),
     })
 
 

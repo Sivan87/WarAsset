@@ -1045,3 +1045,55 @@ på en rad, och en genomgång av redigera-dialogen/listvyn/
 enhetsdetalj-dialogen bekräftade att all UI-text är engelsk (en missad
 sträng, tabellrubriken "Namn" i vapentabellerna, hittades och fixades
 under samma genomgång — se `viewWeaponsTableHtml` i `app.js`).
+
+## Bildhantering flyttad till redigera-dialogen (2026-08-26)
+
+"Re-match image"/"Remove image" (Fas 4/4b) togs bort från enhetskortet och
+listraden och flyttades in i redigera-enhet-dialogen, på Sivans begäran —
+all bildhantering (auto-matchning, manuell länk, borttagning) sitter nu
+samlad på ETT ställe (`imageLinkRowHtml` i `app.js`) istället för
+utspridd mellan kortet och dialogen. Enhetskortet/listraden visar nu bara
+Edit/Delete — bilden (om någon) och dess "Bild: miniset.net"-kredit
+visas fortfarande där, bara utan action-knapparna.
+
+- `imageActionsHtml` (kortets gamla knapp-funktion) och de fristående
+  `fetchUnitImage`/`deleteUnitImage`-funktionerna (med sin
+  `data-action="fetch-image"`/`"delete-image"`-delegering på
+  `#groups-container`) togs bort helt — ersatta av
+  `fetchAutoImageInDialog`/`removeImageInDialog`, kopplade mot nya knappar
+  `#image-auto-fetch-btn`/`#image-remove-btn` i dialogen.
+- Samma regler som tidigare: auto-matchningsknappen ("Fetch image"/
+  "Re-match image") visas bara om enheten har en BSData-koppling
+  (`d.entryId != null` i dialogens state, motsvarande `entry_id` på
+  kortet) — men "Remove image" och den manuella länken fungerar oavsett,
+  även för anpassade enheter.
+- Samma "skriv aldrig över en manuell bild i tysthet"-bekräftelse
+  (`window.confirm(...)` INNAN ett `?force=true`-anrop) flyttades med,
+  fast mot dialogens `d.imageSource` istället för kortets `u.image_source`.
+- Bildändringar i dialogen sparas OMEDELBART mot servern (samma mönster
+  som foto-uppladdning och den manuella länken redan hade) — oberoende av
+  dialogens "Save"-knapp. Både `d.imageUrl`/`d.imageSourceUrl`/
+  `d.imageSource` OCH motsvarande fält på `state.units`-posten uppdateras
+  lokalt efter varje lyckad ändring, så kortet reflekterar den nya bilden
+  direkt när dialogen stängs — utan att kräva en full `loadUnits()`-
+  omladdning (även om `Cancel` sedan klickas, precis som foto-uppladdning
+  redan fungerade).
+- `POST /api/units/<id>/fetch-image` utökades att även returnera
+  `image_source` i svaret (saknades tidigare — bara `matched`/`image_url`/
+  `image_source_url`), eftersom dialogen nu behöver det för att visa rätt
+  badge ("Auto-matched") direkt efter en lyckad om-matchning utan en extra
+  `GET`.
+- `d.manualImageError` döptes om till `d.imageError` och delas nu av alla
+  tre bild-åtgärderna (manuell länk, auto-matchning, borttagning) — en
+  enda felyta i UI:t istället för att bara täcka den manuella länken.
+
+Verifierat med Playwright mot en lokalt körande server: kortet saknar
+bild-knapparna men visar fortfarande bilden+krediten; redigera-dialogen
+för en BSData-länkad enhet visar "Re-match image"/"Remove image"/badge;
+"Remove image" nollställer bilden i dialogen UTAN att stänga den
+(förhandsvisningen byts till "No image", auto-knappen byter text till
+"Fetch image"); en efterföljande "Fetch image" hämtar tillbaka bilden
+(badge "Auto-matched") fortfarande utan att stänga dialogen; en omladdning
+av sidan efter `Cancel` bekräftar att ändringen ändå persisterats;
+en anpassad enhet (`entry_id == null`) visar INGEN auto-matchningsknapp
+alls i dialogen. Inga konsolfel.
