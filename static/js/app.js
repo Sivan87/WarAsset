@@ -330,7 +330,8 @@
     const other = profiles.filter((p) => !/weapon/i.test(p.type || ''));
     html += other.map(profileBlockHtml).join('');
     if (weapons.length) {
-      html += '<div class="stats-popover-subhead">Vapenprofiler</div>' + weapons.map(profileBlockHtml).join('');
+      html += '<div class="stats-popover-subhead">Vapenprofiler</div>' +
+        '<div class="stats-weapons-columns">' + weapons.map(profileBlockHtml).join('') + '</div>';
     }
     return html;
   }
