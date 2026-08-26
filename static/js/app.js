@@ -285,17 +285,28 @@
     pop.style.top = top + 'px';
   }
 
+  // Långa värden (t.ex. "Description"/"Keywords") får en egen hel rad
+  // (stat-chip-wide) istället för att tvingas in i samma smala kolumnbredd
+  // som korta karaktäristiker (M/T/SV/...) — annars blev hela profilen en
+  // enda smal, hög remsa istället för ett kompakt, brett flödande grid.
+  const WIDE_CHIP_THRESHOLD = 18;
+
   function profileBlockHtml(p) {
-    const rows = Object.entries(p.characteristics || {})
-      .map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
-      .join('');
+    const chips = Object.entries(p.characteristics || {}).map(([k, v]) => {
+      const wide = (v || '').length > WIDE_CHIP_THRESHOLD;
+      return `
+        <div class="stat-chip${wide ? ' stat-chip-wide' : ''}">
+          <div class="stat-chip-label">${escapeHtml(k)}</div>
+          <div class="stat-chip-value">${escapeHtml(v)}</div>
+        </div>`;
+    }).join('');
     return `
       <div class="stats-profile">
         <div class="stats-profile-head">
           <span class="stats-profile-name">${escapeHtml(p.name || '')}</span>
           <span class="tag tag-neutral">${escapeHtml(p.type || '')}</span>
         </div>
-        <table class="stats-profile-table"><tbody>${rows}</tbody></table>
+        <div class="stats-characteristics">${chips}</div>
       </div>`;
   }
 

@@ -120,7 +120,7 @@ body { padding-bottom: var(--space-8); }
 .name-link:hover, .name-link:focus-visible { color: var(--color-accent); text-decoration: underline; }
 
 .stats-popover {
-  position: fixed; z-index: 60; width: 320px; max-width: calc(100vw - 16px);
+  position: fixed; z-index: 60; width: 460px; max-width: calc(100vw - 16px);
   max-height: 70vh; overflow-y: auto; padding: var(--space-4);
 }
 .stats-popover-name { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 16px; }
@@ -132,12 +132,18 @@ body { padding-bottom: var(--space-8); }
 .stats-profile + .stats-profile { margin-top: var(--space-3); }
 .stats-profile-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: 4px; }
 .stats-profile-name { font-size: 13px; font-weight: 600; }
-.stats-profile-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.stats-profile-table th {
-  text-align: left; font-weight: 400; color: color-mix(in srgb, var(--color-text) 55%, transparent);
-  padding: 2px var(--space-2) 2px 0; white-space: nowrap; vertical-align: top;
+/* Karaktäristik-"chips" i ett flödande grid istället för en smal
+   en-kolumns tabell — kortare värden (M/T/SV/W/...) hamnar flera per rad,
+   så en profil blir kompakt/bred istället för en lång smal remsa. Långa
+   värden (Description, Keywords) tar egen hel rad via .stat-chip-wide. */
+.stats-characteristics { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-4); font-size: 12px; }
+.stat-chip { min-width: 44px; }
+.stat-chip.stat-chip-wide { flex: 1 1 100%; }
+.stat-chip-label {
+  font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
-.stats-profile-table td { padding: 2px 0; word-break: break-word; }
+.stat-chip-value { margin-top: 1px; word-break: break-word; }
 
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulseGlow { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 0%, transparent); } 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 22%, transparent); } }
