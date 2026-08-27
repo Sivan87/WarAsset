@@ -349,22 +349,35 @@ miniset.net-trafik) bekräftade UI:t: ingen auto-matchningsknapp,
 uppdaterad fälthint, en ogiltig länk ger bara det egna API:ets `400` utan
 att någon request lämnar sidan mot miniset.net.
 
+### Live-verifiering + deploy — KLART (2026-08-27, samma dag, tillägg)
+
+Sivan bekräftade externt (direkt på miniset.net, utanför verktyget) att
+blockeringen inte längre var aktiv i verkligheten — tidigare än den
+seedade cooldownens 2026-08-28. Se `fas6-cooldown-clear-followup.md` och
+CLAUDE.md, avsnittet "Fas 6-tillägg: cooldownen rensad i förtid, deploy +
+live-verifiering", för hela flödet. Kortversion: cooldownen rensad direkt
+i produktionsdatabasen (`DELETE FROM miniset_block`, inte via ett
+gissningsanrop), kod deployad (`git push` + `ssh unraid`: `git pull` +
+`docker compose up -d --build`), EN avsiktlig riktig request mot en redan
+känd, tidigare verifierad produktsida (Death Guard "Plague Marines",
+`gw-99810102007`) — bekräftade nedladdning, lokal cache
+(`/uploads/miniset/9.jpg`, 55432 bytes på den riktiga Unraid-volymen),
+att bilden serveras därifrån (noll ytterligare miniset.net-anrop vid
+upprepad visning) och att blockeringsdetektorn inte gav falska positiva
+på riktig trafik. Testenheten och dess cachade fil borttagna efteråt,
+produktionsdatabasen (Sivans 6 riktiga enheter) orörd.
+
 ### Öppna punkter / kända begränsningar (Fas 6)
 
-- **Ingen live-verifiering mot riktiga miniset.net-servrar ännu**
-  (kickoff-dokumentets uppgift 5) — måste vänta till cooldownen
-  (2026-08-28) har passerat. Måste göras innan deploy till Unraid: länka
-  en riktig produktsida, bekräfta att bilden laddas ner och fortsätter
-  visas med utgående trafik mot miniset.net blockerad, deploya, verifiera
-  live.
 - **Befintliga hotlinkade bilder migreras INTE** (medvetet, se CLAUDE.md)
   — de fortsätter fungera som hotlinks tills Sivan manuellt länkar om
   varje enhet. Om Sivan vill ha ALLA bilder lokalt cachade måste hen
   länka om dem en och en (eller be om en engångsmigrering senare, inte
   gjord här för att undvika en burst av nya requests mot miniset.net som
   sidoeffekt av den här fasen).
-- **`GET /uploads/<path:filename>`-fixen** är bara indirekt verifierad
-  (Flask `test_client()`, inte en riktig webbläsare mot en riktigt
-  uppladdad bild) — värt att dubbelkolla vid nästa live-verifiering.
+- **Cirkelbrytaren inte omtestad mot en NY riktig blockering** live (skulle
+  kräva att medvetet trigga en) — redan uttömmande verifierat offline
+  (34/34 kontroller under huvudimplementationen). Live-omgången bekräftade
+  bara avsaknaden av falska positiva på riktig trafik.
 - **Ingen ny run-skill** genererad — samma öppna punkt som alla tidigare
   faser.

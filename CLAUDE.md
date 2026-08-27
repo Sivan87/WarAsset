@@ -1569,24 +1569,87 @@ request lämnade sidan mot `miniset.net`. Testenheten raderad efteråt,
 databasen lämnad tom precis som innan testningen (bekräftat: `collection_
 units`/`miniset_requests`/`miniset_block` alla tomma efteråt).
 
-**Inte verifierat mot en riktig live-request** (per kickoff-dokumentets
-uppgift 5 och stop-the-line-kravet): den faktiska nedladdningen/cachningen
-mot en RIKTIG miniset.net-produktsida, och att bilden fortsätter fungera
-med utgående trafik mot miniset.net blockerad efteråt. Måste vänta tills
-cooldownen (2026-08-28) har passerat — se "Kvar att göra" nedan.
+**Live-verifiering slutförd 2026-08-27** (samma dag, efter att Sivan
+bekräftat externt — direkt på miniset.net, utanför det här verktyget — att
+den "temporarily restricted"-blockeringen inte längre var aktiv i
+verkligheten, tidigare än den seedade 48h-cooldownens 2026-08-28). Se
+"Fas 6-tillägg: cooldownen rensad i förtid" nedan för hela flödet
+(rensning av den seedade cooldownen, deploy, den enda avsiktliga riktiga
+requesten, och resultatet).
 
-### Kvar att göra
+### Fas 6-tillägg: cooldownen rensad i förtid, deploy + live-verifiering (2026-08-27)
 
-- **Live-verifiering + deploy** (kickoff-dokumentets uppgift 5): vänta
-  till cooldownen lyfts (2026-08-28), länka en riktig miniset.net-
-  produktsida mot en riktig enhet, bekräfta att bilden laddas ner och
-  fortsätter visas med utgående trafik mot miniset.net blockerad, deploya
-  till Unraid enligt det vanliga flödet, verifiera live.
-- **`GET /uploads/<path:filename>`-fixen (se ovan) är inte
-  Playwright-verifierad mot en RIKTIG uppladdad bild** — bara indirekt via
-  `test_fas6.py`:s `app.test_client()`-anrop och den offline-bekräftade
-  logiken. Foto-uppladdning (Fas 2) har historiskt Playwright-testats som
-  fungerande i webbläsaren, så den nya routen fixar sannolikt ett hål som
-  aldrig märktes tidigare — värt att dubbelkolla vid nästa live-
-  verifiering ovan genom att faktiskt ladda upp ett foto och kontrollera
-  att det renderas efter en full sidladdning.
+Uppgift kom som en separat uppföljning, `fas6-cooldown-clear-followup.md`
+(sparat i repot enligt samma mönster som övriga kickoff-dokument).
+
+- **Cooldownen rensad DIREKT i produktionsdatabasen** (inte via ett riktigt
+  anrop — samma "aldrig gissa oss förbi en blockering" princip som Fas 4c
+  själv, fast i omvänd riktning: vi vet nu att verkligheten är MER
+  tillåtande än den seedade cooldownen, inte mindre): `DELETE FROM
+  miniset_block WHERE id = 1` kört via `docker exec
+  warasset-warasset-1 python3 -c "..."` på Unraid-servern, EFTER att
+  Fas 6:s kod redan var deployad (se nedan) — bekräftat efteråt med
+  `database.get_miniset_block()` → `None`. Cirkelbrytar-LOGIKEN själv
+  rördes inte — bara det extra, nu inaktuella, väntandet togs bort. En
+  framtida riktig blockering skulle fortfarande sätta en ny cooldown precis
+  som innan.
+- **Deploy:** `git push` (commit `c4451ad`), `ssh unraid`: `git pull` +
+  `docker compose -p warasset up -d --build` — byggde rent (bekräftar att
+  `rapidfuzz` verkligen är borta ur imagen; `pip install` listade bara
+  Flask/Jinja2/Werkzeug/requests/beautifulsoup4/python-dotenv-kedjan, ingen
+  rapidfuzz-rad).
+- **Den enda avsiktliga riktiga requesten** (kickoff-uppgiftens explicita
+  krav — "just the one deliberate real request", inget bulk-test): en
+  RIKTIG enhet skapades tillfälligt i produktionsdatabasen (`entry_id`
+  1122, "Chaos - Death Guard" Plague Marines) och länkades mot den redan
+  sedan Fas 4 verifierade riktiga produktsidan
+  `https://miniset.net/sets/gw-99810102007` via
+  `POST /api/units/<id>/image-from-url` mot den LIVE Unraid-servern
+  (`http://192.168.1.142:5001`) — inte en ny sökning mot miniset.net (som
+  ändå inte fungerar, se Fas 4), utan en redan känd, dokumenterad, giltig
+  länk. Resultat: `image_url` = `/uploads/miniset/9.jpg`, `image_source` =
+  `manual`, HTTP 200, ingen blockering. `database.miniset_requests` fick
+  exakt 2 nya rader (sidhämtning + bildnedladdning, ~10 sekunder isär —
+  bekräftar att rate-limitet fortfarande gäller), båda `blocked=0` — dvs.
+  blockerings-detektorn korrekt INTE flaggade ett riktigt, giltigt svar som
+  en blockering (den positiva motsatsen till Fas 4c:s ursprungliga
+  textbaserade detektering, nu bekräftad live).
+- **"Genuinely local, not hotlinked"-beviset:** filen bekräftad fysiskt på
+  Unraid-volymen (`docker exec ... ls -la /app/data/uploads/miniset/` →
+  `9.jpg`, 55432 bytes). `GET http://192.168.1.142:5001/uploads/miniset/
+  9.jpg` (den nya Fas 6-routen) svarade `200`, `Server: Werkzeug`, och
+  bytesen matchade filen på disk exakt (en riktig JPEG, 920×950). Två
+  ytterligare hämtningar av samma lokala url gav **noll** nya rader i
+  `miniset_requests` — dvs. att VISA bilden gör inga fler anrop mot
+  miniset.net alls, vilket bara är möjligt om bilden faktiskt serveras
+  lokalt (`send_from_directory` är en ren diskläsning, ingen nätverkskod i
+  den kodvägen — verifierat både genom kodgranskning och detta empiriska
+  test). En bokstavlig brandväggs-avstängning av miniset.net på
+  DELAD Unraid-hårdvara (som även kör BrickRadar) bedömdes som en onödig
+  extra risk givet att båda bevisen ovan (kod + tomt request-log vid
+  upprepad visning) redan är entydiga — gjordes INTE.
+- **Cirkelbrytaren "fortsätter fungera korrekt om en blockering någonsin
+  sågs igen":** inte omtestad mot en NY riktig blockering (skulle kräva
+  att medvetet trigga en, tvärtemot "var en god granne mot en liten
+  hobbysajt"-hållningen) — redan uttömmande verifierat offline under
+  huvudimplementationen (34/34 kontroller, inklusive att ett andra försök
+  under en aktiv cooldown gör NOLL nätverksanrop, se ovan). Den här
+  live-omgången bekräftar bara att detektorn inte ger falska positiva på
+  riktig trafik, vilket kompletterar (inte ersätter) den offline-
+  verifieringen.
+- **Städning:** `DELETE /api/units/9/image` (tog bort `9.jpg` från disk,
+  bekräftat tomt `uploads/miniset/`-mapp efteråt) och sedan
+  `DELETE /api/units/9` (tog bort testenheten helt). Produktionsdatabasen
+  lämnad i exakt samma skick som innan (`collection_units` tillbaka till 6
+  rader, Sivans riktiga samling — inga av dem rörda).
+- **`GET /uploads/<path:filename>`-fixen** nu bekräftad fungera mot en
+  RIKTIG fil på den riktiga Unraid-volymen (inte bara `test_fas6.py`:s
+  `app.test_client()`) — se ovan.
+
+Alla fyra kravpunkterna i uppföljningsuppdraget uppfyllda: cooldownen
+rensad, live-verifiering (nedladdning + lokal cache + "genuinely local"-
+beviset + cirkelbrytar-bekräftelse) genomförd, deploy till Unraid klar och
+bekräftad live (`http://192.168.1.142:5001/` → 200,
+`warasset-warasset-1` "Up"), och bara EN avsiktlig riktig request gjordes
+(mot en redan känd, tidigare verifierad produktsida — inget nytt sök- eller
+bulk-test mot miniset.net).
