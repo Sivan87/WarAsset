@@ -24,6 +24,12 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "uploads")
 _ALLOWED_UPLOAD_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
+# Fas 6: lokalt cachade miniset.net-bilder (se fas6-warasset-retire-auto-
+# image-match.md, uppgift 2) lever i en egen undermapp av samma volym som
+# user-uppladdade foton, samma persistens-mönster.
+MINISET_UPLOAD_DIR = os.path.join(UPLOAD_DIR, "miniset")
+_MINISET_LOCAL_PREFIX = "/uploads/miniset/"
+
 # Skyddar mot att flera samtidiga POST /api/sync-anrop startar parallella
 # git clone/pull mot samma mapp (kan korrumpera en pågående klon). En synk
 # tar typiskt allt från några sekunder (git pull, inga ändringar) till några
@@ -113,129 +119,65 @@ VALID_STATUSES = set(db.STATUSES)
 
 
 # ---------------------------------------------------------------------------
-# Referensbild från miniset.net (Fas 4, se fas4-warasset-miniset-bilder.md)
+# Referensbild från miniset.net (Fas 4/4b, retired ner till en enda,
+# manuell länk-väg i Fas 6 — se fas6-warasset-retire-auto-image-match.md
+# och CLAUDE.md "Fas 6" för varför den automatiska fuzzy-matchningen och
+# dess "Fetch/re-match image"-knapp togs bort helt)
 # ---------------------------------------------------------------------------
 
 def _miniset_blocked_message(blocked_until):
     """Fas 4c (fas4c-warasset-miniset-incident.md, CLAUDE.md "Fas 4c"):
-    shared, honest UI message for all three miniset.net call paths while a
-    circuit-breaker cooldown is active. Deliberately does NOT retry or
-    fall back to anything else — see the incident doc for why hammering a
-    site that just flagged us would be worse than just waiting it out."""
+    shared, honest UI message while a circuit-breaker cooldown is active.
+    Deliberately does NOT retry or fall back to anything else — see the
+    incident doc for why hammering a site that just flagged us would be
+    worse than just waiting it out. Still relevant post-Fas-6: the single
+    remaining call path (a manually pasted link) is a real request too."""
     when = (blocked_until or "").split("T")[0] or "later"
     return (
         "Image lookup from miniset.net is temporarily unavailable — their site flagged our requests as "
-        f"automated activity, so we've stopped trying until {when}. You can link an image manually instead."
+        f"automated activity, so we've stopped trying until {when}. Try again after that."
     )
 
 
-def _trigger_auto_image_fetch(unit):
-    """Startar en bakgrundsmatchning mot miniset.net efter att en enhet
-    sparats/länkats mot en BSData-entry, om ingen bild redan hämtats eller
-    försökts hämtas (image_checked_at). Körs ALDRIG synkront i request-
-    tråden — matchningen kan ta upp till ~30 sekunder pga rate-limitet mot
-    miniset.net (se miniset_client.py), och kickoff-dokumentet kräver
-    uttryckligen att detta inte blockerar spara-anropet. Ett fel här får
-    aldrig krascha bakgrundstråden eller synas för användaren — det är bara
-    en "best effort"-förbättring, inte en kritisk del av att spara enheten."""
-    if not unit or unit.get("image_url") or unit.get("image_checked_at"):
+def _delete_cached_miniset_image(unit):
+    """Tar bort en tidigare lokalt cachad miniset.net-bildfil (Fas 6) från
+    disk innan den ersätts eller nollställs — samma
+    ta-bort-den-gamla-filen-mönster som redan fanns för photo_path i
+    api_upload_unit_photo. No-op för en enhet vars image_url fortfarande är
+    en hotlink från innan Fas 6 (inget lokalt att städa bort då, se
+    "Befintliga hotlinkade bilder" i fas6-warasset-retire-auto-image-
+    match.md — de lämnas orörda tills Sivan länkar om enheten)."""
+    image_url = (unit or {}).get("image_url") or ""
+    if not image_url.startswith(_MINISET_LOCAL_PREFIX):
         return
-    if not unit.get("entry_id") or not unit.get("system_key") or not unit.get("catalogue_name"):
-        return
-
-    unit_id = unit["id"]
-    system_key = unit["system_key"]
-    catalogue_name = unit["catalogue_name"]
-    entry_name = unit.get("entry_name") or unit.get("name")
-    role = unit.get("role")
-
-    def _run():
-        try:
-            result = miniset_client.match_unit(
-                system_key=system_key, catalogue_name=catalogue_name, entry_name=entry_name, role=role
-            )
-            if result.get("blocked"):
-                # Fas 4c: deliberately do NOT call mark_unit_image_checked
-                # here — leaving image_checked_at unset means the next time
-                # this unit is saved, the auto-trigger will try again on
-                # its own once the cooldown has lifted, without needing a
-                # manual re-fetch. No further request was made to get here
-                # (match_unit short-circuits before touching the network).
-                print(f"[api] Skipping automatic image match for unit {unit_id}: {result.get('reason')}")
-            elif result.get("matched"):
-                db.set_unit_image(unit_id, result["image_url"], result["image_source_url"], source="auto")
-            else:
-                db.mark_unit_image_checked(unit_id)
-        except Exception as e:
-            print(f"[api] Automatic image match failed for unit {unit_id}: {e}")
-
-    threading.Thread(target=_run, daemon=True).start()
-
-
-@api_bp.route("/units/<int:unit_id>/fetch-image", methods=["POST"])
-def api_fetch_unit_image(unit_id):
-    """Explicit "Hämta/matcha om bild"-knapp i UI:t. Körs SYNKRONT (till
-    skillnad från auto-triggern ovan) eftersom anropet självt är den
-    explicita handlingen — svarar när matchningen är klar, kan ta upp till
-    ~30 sekunder pga rate-limitet mot miniset.net (se miniset_client.py).
-    Ignorerar image_checked_at-cachen medvetet (till skillnad från
-    auto-triggern): en manuell begäran ska alltid försöka igen.
-
-    Fas 4b: en enhet med en manuellt vald bild (image_source == "manual",
-    se api_set_unit_image_from_url) skrivs INTE över av misstag — kräver
-    ?force=true. UI:t frågar användaren INNAN det anropet görs (se
-    fetchUnitImage i app.js), så den här 409:an är ett skyddsnät, inte den
-    primära kommunikationsvägen."""
-    unit = db.get_unit(unit_id)
-    if not unit:
-        return jsonify({"error": "Unit not found"}), 404
-    if unit.get("image_source") == "manual" and request.args.get("force") != "true":
-        return jsonify({
-            "error": "This unit has a manually selected image. Send ?force=true to replace it with an automatic match.",
-            "manual_image": True,
-        }), 409
-    if not unit.get("entry_id") or not unit.get("system_key") or not unit.get("catalogue_name"):
-        return jsonify({"matched": False, "reason": "No BSData link"})
-
-    result = miniset_client.match_unit(
-        system_key=unit["system_key"],
-        catalogue_name=unit["catalogue_name"],
-        entry_name=unit.get("entry_name") or unit.get("name"),
-        role=unit.get("role"),
-    )
-    if result.get("blocked"):
-        return jsonify({
-            "error": _miniset_blocked_message(result.get("blocked_until")),
-            "blocked": True,
-            "blocked_until": result.get("blocked_until"),
-        }), 503
-    if result.get("matched"):
-        db.set_unit_image(unit_id, result["image_url"], result["image_source_url"], source="auto")
-    else:
-        db.mark_unit_image_checked(unit_id)
-
-    updated = db.get_unit(unit_id)
-    return jsonify({
-        "matched": bool(result.get("matched")),
-        "image_url": updated.get("image_url"),
-        "image_source_url": updated.get("image_source_url"),
-        "image_source": updated.get("image_source"),
-    })
+    path = os.path.join(MINISET_UPLOAD_DIR, image_url[len(_MINISET_LOCAL_PREFIX):])
+    if os.path.exists(path):
+        os.remove(path)
 
 
 @api_bp.route("/units/<int:unit_id>/image-from-url", methods=["POST"])
 def api_set_unit_image_from_url(unit_id):
     """Fas 4b: manuell bildlänk (se fas4b-warasset-manuell-bildlank.md) för
-    de edge-cases automatisk matchning inte kan lösa (flera "sculpts" av
-    samma enhet, en hjälte bara såld i ett multi-hjälte-set). Fungerar
-    oavsett om enheten har en entry_id eller inte — länken pekar direkt på
-    en produktsida (eller en specifik bildfil, se nedan), ingen fraktion/
-    roll behövs för att hitta den, till skillnad från den automatiska
-    matchningen. Accepterar antingen en produktsida
-    (miniset.net/sets/<id>) ELLER en direkt bildfils-länk
-    (miniset.net/files/set/<id>-<n>.<ext>, för att peka på en SPECIFIK
-    bild i produktens galleri istället för bara huvudbilden) — se
-    miniset_client.fetch_product_image."""
+    de edge-cases den numera-borttagna automatiska matchningen aldrig kunde
+    lösa (flera "sculpts" av samma enhet, en hjälte bara såld i ett multi-
+    hjälte-set). Fungerar oavsett om enheten har en entry_id eller inte —
+    länken pekar direkt på en produktsida (eller en specifik bildfil, se
+    nedan), ingen fraktion/roll behövs för att hitta den. Accepterar
+    antingen en produktsida (miniset.net/sets/<id>) ELLER en direkt
+    bildfils-länk (miniset.net/files/set/<id>-<n>.<ext>, för att peka på en
+    SPECIFIK bild i produktens galleri istället för bara huvudbilden) — se
+    miniset_client.fetch_product_image.
+
+    Fas 6: laddar nu även ner själva bildfilen och sparar den lokalt
+    (data/uploads/miniset/<unit_id>.<ext>) istället för att bara spara
+    miniset.net:s egen URL som en hotlink — se
+    fas6-warasset-retire-auto-image-match.md, uppgift 2. Nedladdningen går
+    igenom SAMMA rate-limit/circuit-breaker som url-uppslagningen
+    (miniset_client.download_image_bytes), så en produktside-länk gör upp
+    till två skyddade anrop mot miniset.net; en direkt bildfils-länk gör
+    bara nedladdningen (ingen sidhämtning behövs för den formen).
+    image_source_url förblir den fjärr-URL:en Sivan klistrade in — bara
+    använd för "Bild: miniset.net"-krediten, aldrig hämtad igen."""
     unit = db.get_unit(unit_id)
     if not unit:
         return jsonify({"error": "Unit not found"}), 404
@@ -255,17 +197,37 @@ def api_set_unit_image_from_url(unit_id):
     if result.get("error"):
         return jsonify({"error": result["error"]}), 400
 
-    updated = db.set_unit_image(unit_id, result["image_url"], result["source_page_url"], source="manual")
+    download = miniset_client.download_image_bytes(result["image_url"])
+    if download.get("blocked"):
+        return jsonify({
+            "error": _miniset_blocked_message(download.get("blocked_until")),
+            "blocked": True,
+            "blocked_until": download.get("blocked_until"),
+        }), 503
+    if download.get("error"):
+        return jsonify({"error": download["error"]}), 400
+
+    _delete_cached_miniset_image(unit)
+    os.makedirs(MINISET_UPLOAD_DIR, exist_ok=True)
+    filename = f"{unit_id}{download['ext']}"
+    with open(os.path.join(MINISET_UPLOAD_DIR, filename), "wb") as f:
+        f.write(download["content"])
+
+    updated = db.set_unit_image(
+        unit_id, _MINISET_LOCAL_PREFIX + filename, result["source_page_url"], source="manual"
+    )
     return jsonify(updated)
 
 
 @api_bp.route("/units/<int:unit_id>/image", methods=["DELETE"])
 def api_delete_unit_image(unit_id):
-    """Rensar en felaktig automatisk matchning. Rör aldrig photo_path (eget
-    uppladdat foto) — separata fält, se produktbeslutet i
-    fas4-warasset-miniset-bilder.md."""
-    if not db.get_unit(unit_id):
+    """Rensar en felaktig bildkoppling (och en ev. lokalt cachad bildfil,
+    Fas 6). Rör aldrig photo_path (eget uppladdat foto) — separata fält, se
+    produktbeslutet i fas4-warasset-miniset-bilder.md."""
+    unit = db.get_unit(unit_id)
+    if not unit:
         return jsonify({"error": "Unit not found"}), 404
+    _delete_cached_miniset_image(unit)
     db.clear_unit_image(unit_id)
     return jsonify(db.get_unit(unit_id))
 
@@ -331,7 +293,6 @@ def api_create_unit():
         status=status,
         photo_path=data.get("photo_path"),
     )
-    _trigger_auto_image_fetch(unit)
     return jsonify(unit), 201
 
 
@@ -383,7 +344,6 @@ def api_update_unit(unit_id):
             return jsonify({"error": "Cannot clear entry_id without also setting name_override"}), 400
 
     unit = db.update_unit(unit_id, **fields)
-    _trigger_auto_image_fetch(unit)
     return jsonify(unit)
 
 

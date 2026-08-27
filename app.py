@@ -8,7 +8,7 @@ import threading
 import time
 
 from dotenv import load_dotenv
-from flask import Flask, render_template
+from flask import Flask, render_template, send_from_directory
 
 import bsdata_sync
 import database as db
@@ -57,6 +57,18 @@ import api  # noqa: E402
 app.register_blueprint(api.api_bp)
 
 
+@app.route("/uploads/<path:filename>")
+def serve_upload(filename):
+    """Servera user-uppladdade foton (collection_units.photo_path) och,
+    sedan Fas 6, lokalt cachade miniset.net-bilder (collection_units.
+    image_url under /uploads/miniset/, se api.MINISET_UPLOAD_DIR) — båda
+    fälten sparas som "/uploads/..." och används rakt av som <img src> i
+    static/js/app.js, så webbläsaren måste kunna hämta exakt den sökvägen
+    direkt (till skillnad från GET /api/units/<id>/photo, som slår upp
+    filen via ett unit-id istället för en rå sökväg)."""
+    return send_from_directory(api.UPLOAD_DIR, filename)
+
+
 if __name__ == "__main__":
     db.init_db()
 
@@ -68,9 +80,11 @@ if __name__ == "__main__":
 
     # host="0.0.0.0" gör servern nåbar från andra enheter på hemnätverket.
     # Port 5001 (inte 5000) för att inte krocka med BrickRadar på samma
-    # Unraid-server, se docker-compose.yml. threaded=True (Fas 4): utan den
-    # blockerar Flasks inbyggda dev-server ALLA andra requests medan
-    # POST /api/units/<id>/fetch-image väntar in miniset.net:s rate-limit
-    # (upp till ~30 sekunder, se miniset_client.py) — inte bara den enskilda
-    # klienten som frågade efter bilden.
+    # Unraid-server, se docker-compose.yml. threaded=True (Fas 4, fortsatt
+    # relevant efter Fas 6:s ombygge): utan den blockerar Flasks inbyggda
+    # dev-server ALLA andra requests medan POST /api/units/<id>/image-from-
+    # url väntar in miniset.net:s rate-limit (upp till ~20 sekunder för en
+    # produktside-länk: sidhämtning + bildnedladdning, se
+    # miniset_client.py) — inte bara den enskilda klienten som länkade
+    # bilden.
     app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)

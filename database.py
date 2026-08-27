@@ -460,35 +460,27 @@ def delete_unit(unit_id):
 # collection_units — miniset.net-referensbild (Fas 4 + Fas 4b)
 # ---------------------------------------------------------------------------
 
-def set_unit_image(unit_id, image_url, image_source_url, source="auto"):
-    """Sparar en lyckad matchning — antingen en automatisk (source='auto',
-    default, från miniset_client.match_unit) eller en manuellt inklistrad
-    länk (source='manual', se fas4b-warasset-manuell-bildlank.md).
-    image_checked_at sätts samtidigt oavsett källa så en efterföljande
-    sidladdning inte matchar om enheten i onödan (se "Cacha resultatet" i
-    fas4-warasset-miniset-bilder.md). image_source används av
-    api._trigger_auto_image_fetch/api_fetch_unit_image för att INTE skriva
-    över en manuellt vald bild av misstag."""
+def set_unit_image(unit_id, image_url, image_source_url, source="manual"):
+    """Sparar en bild kopplad via en manuellt inklistrad miniset.net-länk
+    (se fas4b-warasset-manuell-bildlank.md) — det enda sättet en bild kan
+    kopplas sedan Fas 6 tog bort den automatiska fuzzy-matchningen (se
+    fas6-warasset-retire-auto-image-match.md). Historiska rader kan
+    fortfarande ha source='auto' från innan Fas 6 — inte backfyllda, se
+    CLAUDE.md "Fas 6" för resonemanget. image_checked_at sätts samtidigt så
+    fältet fortsätter fungera som "senast bildkopplingen ändrades"."""
     return update_unit(
         unit_id, image_url=image_url, image_source_url=image_source_url,
         image_checked_at=now_iso(), image_source=source,
     )
 
 
-def mark_unit_image_checked(unit_id):
-    """Cachar ett NEGATIVT resultat (ingen träff hittad) — image_url förblir
-    NULL, men image_checked_at sätts så vi inte försöker igen vid varje
-    sidladdning. En manuell 'hämta om'-knapp ignorerar den här cachen och
-    anropar match_unit på nytt ändå."""
-    return update_unit(unit_id, image_checked_at=now_iso())
-
-
 def clear_unit_image(unit_id):
-    """Nollställer en felaktig bild (automatisk ELLER manuell) till 'aldrig
-    kontrollerad' igen (inte bara 'kontrollerad, ingen träff') — så en
-    framtida sparning av enheten kan trigga automatchningen på nytt. Rör
-    aldrig photo_path (eget uppladdat foto), separat fält enligt
-    produktbeslutet."""
+    """Nollställer en felaktig bildkoppling (historiskt automatisk ELLER
+    manuell) helt — image_url/image_source_url/image_checked_at/
+    image_source alla till NULL. Anroparen (api.api_delete_unit_image) tar
+    bort en ev. lokalt cachad bildfil från disk FÖRE det här anropet, se
+    api._delete_cached_miniset_image (Fas 6). Rör aldrig photo_path (eget
+    uppladdat foto), separat fält enligt produktbeslutet."""
     return update_unit(unit_id, image_url=None, image_source_url=None, image_checked_at=None, image_source=None)
 
 

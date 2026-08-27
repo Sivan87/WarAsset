@@ -322,3 +322,49 @@ miniset.net under hela incident-utredningen, per kickoff-dokumentets krav.
   en bild-åtgärd och får 503-felmeddelandet. Bedömt tillräckligt för en
   ovanlig, tillfällig incident-lägen — en dedikerad statusindikator vore
   onödig komplexitet för ett läge som (förhoppningsvis) sällan uppstår.
+
+## Fas 6 (automatisk bildmatchning borttagen, manuell länk cachar lokalt) — KLAR (2026-08-27)
+
+Se CLAUDE.md, avsnittet "Fas 6 — Automatisk bildmatchning borttagen,
+manuell länk cachar lokalt (KLAR)", för fullständig dokumentation: vad som
+togs bort ur `miniset_client.py`/`api.py`/`app.js`, `download_image_bytes`-
+nedladdningen, lokal cache under `data/uploads/miniset/`, beslutet att
+lämna `image_source='auto'`-rader och gamla hotlinkade bilder OFÖRÄNDRADE
+(ingen backfill/migrering), och den nya `GET /uploads/<path:filename>`-
+routen som fixar ett latent hål från Fas 2 (fotouppladdningens `photo_path`
+saknade en route som faktiskt serverade `/uploads/...` som en rå sökväg).
+
+### Verifierat under utvecklingen
+
+Uteslutande offline (samma stop-the-line-krav som Fas 4c — cooldownen från
+Fas 4c-rollouten var fortfarande aktiv till 2026-08-28 under hela den här
+fasen): monkeypatchad `requests.get` mot en riktig men throwaway-DB-
+instans av hela Flask-appen (`app.test_client()`), 34/34 kontroller gröna
+(nedladdning + lokal cache, borttagning av gamla cachade filer vid om-
+länkning, `DELETE`-städning, hotlinkade legacy-rader lämnas orörda,
+cirkelbrytaren trippar och gör noll ytterligare anrop på ett andra
+försök, `/fetch-image` bekräftat borta med `404`). Playwright mot en
+lokalt körande server (riktig BSData-synkad databas, ingen riktig
+miniset.net-trafik) bekräftade UI:t: ingen auto-matchningsknapp,
+uppdaterad fälthint, en ogiltig länk ger bara det egna API:ets `400` utan
+att någon request lämnar sidan mot miniset.net.
+
+### Öppna punkter / kända begränsningar (Fas 6)
+
+- **Ingen live-verifiering mot riktiga miniset.net-servrar ännu**
+  (kickoff-dokumentets uppgift 5) — måste vänta till cooldownen
+  (2026-08-28) har passerat. Måste göras innan deploy till Unraid: länka
+  en riktig produktsida, bekräfta att bilden laddas ner och fortsätter
+  visas med utgående trafik mot miniset.net blockerad, deploya, verifiera
+  live.
+- **Befintliga hotlinkade bilder migreras INTE** (medvetet, se CLAUDE.md)
+  — de fortsätter fungera som hotlinks tills Sivan manuellt länkar om
+  varje enhet. Om Sivan vill ha ALLA bilder lokalt cachade måste hen
+  länka om dem en och en (eller be om en engångsmigrering senare, inte
+  gjord här för att undvika en burst av nya requests mot miniset.net som
+  sidoeffekt av den här fasen).
+- **`GET /uploads/<path:filename>`-fixen** är bara indirekt verifierad
+  (Flask `test_client()`, inte en riktig webbläsare mot en riktigt
+  uppladdad bild) — värt att dubbelkolla vid nästa live-verifiering.
+- **Ingen ny run-skill** genererad — samma öppna punkt som alla tidigare
+  faser.

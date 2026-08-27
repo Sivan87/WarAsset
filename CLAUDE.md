@@ -7,17 +7,22 @@ som referensprojektet BrickRadar (`C:\BrickRadar\BrickRadar-Web`).
 
 **Status: Fas 1 (grunddatabas + BSData-synk + API), Fas 2 (UI), Fas 3
 (enhetsdetalj/datasheet-vy), Fas 4 (referensbilder från miniset.net), Fas 4b
-(manuell bildlänk), Fas 4c (miniset.net-incident + circuit breaker) och
-Fas 5 (brand identity) är ALLA KLARA.** Kickoff-dokumenten ligger kvar
+(manuell bildlänk), Fas 4c (miniset.net-incident + circuit breaker), Fas 5
+(brand identity) och Fas 6 (automatisk bildmatchning borttagen, manuell länk
+cachar nu bilden lokalt) är ALLA KLARA.** Kickoff-dokumenten ligger kvar
 i repot: `fas1-warasset-grunddata-bsdata.md` (backend),
 `fas1b-warasset-deploy.md` (GitHub-koppling + deploy), `fas2-warasset-ui.md`
 (UI), `fas3-warasset-stats-popover.md` (enhetsdetalj — filnamnet nämner
 "popover" men den UI:t landade på är en fullstor dialog, se nedan),
-`fas4-warasset-miniset-bilder.md` (referensbilder),
-`fas4b-warasset-manuell-bildlank.md` (manuell bildlänk för de fall den
-automatiska matchningen inte kan lösa), `fas4c-warasset-miniset-incident.md`
-(miniset.net rate-limit-incidenten och circuit breaker-fixen) och
-`fas5-warasset-brand-identity.md` (logotyp/favicon/navbar).
+`fas4-warasset-miniset-bilder.md` (referensbilder — OBS: den automatiska
+matchningen det dokumentet beskriver är borttagen sedan Fas 6, se nedan),
+`fas4b-warasset-manuell-bildlank.md` (manuell bildlänk, fortsatt aktuell —
+det enda sättet att koppla en bild sedan Fas 6),
+`fas4c-warasset-miniset-incident.md` (miniset.net rate-limit-incidenten och
+circuit breaker-fixen — cirkelbrytaren lever kvar oförändrad), `fas5-
+warasset-brand-identity.md` (logotyp/favicon/navbar) och
+`fas6-warasset-retire-auto-image-match.md` (den automatiska matchningen
+retirerad, manuell länk cachar nu bilden lokalt).
 
 ## Produktbeslut
 
@@ -210,6 +215,8 @@ aldrig HTML-felsidor.
 | DELETE | `/api/units/<id>` | Ta bort |
 | POST | `/api/units/<id>/photo` | Ladda upp foto (multipart, fält `photo`) |
 | GET | `/api/units/<id>/photo` | Hämta foto |
+| POST | `/api/units/<id>/image-from-url` | Koppla en miniset.net-bild via manuell länk (laddas ner + cachas lokalt, se Fas 6) |
+| DELETE | `/api/units/<id>/image` | Ta bort bildkopplingen (+ ev. lokalt cachad fil) |
 
 ## GitHub
 
@@ -1319,6 +1326,12 @@ under samma genomgång — se `viewWeaponsTableHtml` i `app.js`).
 
 ## Bildhantering flyttad till redigera-dialogen (2026-08-26)
 
+**OBS: den automatiska matchningen/"Fetch image"-knappen det här avsnittet
+beskriver togs bort helt i Fas 6 (2026-08-27, se avsnittet längst ner i den
+här filen)** — kvar i CLAUDE.md som historik för VARFÖR bild-hanteringen
+ligger i dialogen istället för på kortet, inte som en aktuell beskrivning
+av vilka knappar som finns där idag.
+
 "Re-match image"/"Remove image" (Fas 4/4b) togs bort från enhetskortet och
 listraden och flyttades in i redigera-enhet-dialogen, på Sivans begäran —
 all bildhantering (auto-matchning, manuell länk, borttagning) sitter nu
@@ -1368,3 +1381,212 @@ för en BSData-länkad enhet visar "Re-match image"/"Remove image"/badge;
 av sidan efter `Cancel` bekräftar att ändringen ändå persisterats;
 en anpassad enhet (`entry_id == null`) visar INGEN auto-matchningsknapp
 alls i dialogen. Inga konsolfel.
+
+## Fas 6 — Automatisk bildmatchning borttagen, manuell länk cachar lokalt (KLAR, 2026-08-27)
+
+Se `fas6-warasset-retire-auto-image-match.md` för kickoff-dokumentet. Sivan
+beslutade att den fuzzy-matchande auto-sökningen (Fas 4:s `match_unit()`)
+skulle retireras helt, inte bara stängas av: den var den mest riskfyllda
+delen av miniset.net-integrationen (flera GISSADE requests per enhet, ingen
+människa som bekräftar att träffen faktiskt stämmer) för den minst
+pålitliga nyttan (kända recall-problem: kapitel-specifika kataloger,
+multi-hjälte-set, flera sculpts — se de "Kända begränsningar"-avsnitten i
+Fas 4 ovan) — och den mest sannolika drivkraften bakom Fas 4c-incidentens
+request-VOLYM (se den incidentens root cause-resonemang). Kvar: den
+manuella länk-flödet från Fas 4b (Sivan hittar rätt produktsida själv och
+klistrar in länken) — ett enda, mänskligt bekräftat, lågvolyms-anrop, en
+fundamentalt annan riskprofil än automatisk gissning.
+
+### Vad som togs bort
+
+- **`miniset_client.match_unit()` och allt den ensam använde**: rapidfuzz-
+  baserad namnmatchning (`fuzz.WRatio`), `MATCH_THRESHOLD`,
+  kategori-slug-gissningen för 40k (`_ROLE_CATEGORY_HINTS`/
+  `_category_candidates_for_role`), den paginerade fallback-crawlern för
+  Kill Team/AoS (`_fetch_category`/`_parse_category_page`),
+  `_faction_slug`/`_FACTION_SLUG_ALIASES`/`_slugify`/`GAME_LINE_SLUGS`/
+  `_MAX_REQUESTS_PER_MATCH`. `rapidfuzz` togs bort ur `requirements.txt` —
+  inget annat i kodbasen använde det.
+- **`POST /api/units/<id>/fetch-image`** (den "gissa och hämta"-routen) och
+  `api._trigger_auto_image_fetch` (bakgrundstriggern vid spara/redigera,
+  anropad från både `api_create_unit` och `api_update_unit`) — helt
+  borttagna, inte avstängda. `db.mark_unit_image_checked` (bara använd av
+  de här två) togs också bort som dödkod.
+- **UI:t**: "Fetch image"/"Re-match image"-knappen
+  (`#image-auto-fetch-btn`, `fetchAutoImageInDialog` i `app.js`) och dess
+  `window.confirm(...)`-skydd mot att skriva över en manuell bild togs
+  bort ur redigera-dialogen (`imageLinkRowHtml`). Fälthintens text
+  uppdaterades från "...om den automatiska matchningen valde fel" till att
+  förklara att INGEN automatisk uppslagning görs — bara nedladdning av den
+  länk Sivan klistrar in.
+- **Cirkelbrytaren (Fas 4c) rördes INTE** — `MinisetBlockedError`,
+  `_looks_blocked`, `database.miniset_block`/`miniset_requests` lever kvar
+  oförändrade, bara med EN anropsväg kvar att skydda istället för tre.
+
+### `image_source = 'auto'`: kvar på historiska rader, inte backfyllad
+
+Beslut (kickoff-dokumentet gav fritt val): historiska `collection_units`-
+rader med `image_source = 'auto'` (satta innan Fas 6 av den nu borttagna
+`match_unit()`) lämnas OFÖRÄNDRADE — ingen migrering/backfill till ett
+neutralt värde. `'auto'` produceras aldrig mer av ny kod
+(`database.set_unit_image`s `source`-parameter defaultar nu till
+`'manual'`, den enda kvarvarande anroparen skickar ändå alltid
+`source="manual"` explicit). UI:t (`imageLinkRowHtml`/`unitPhotoHtml` i
+`app.js`) visar fortfarande badgen/krediten för `'auto'`-rader, men med
+uppdaterad text ("Auto-matched (legacy)" / "Reference image from
+miniset.net (legacy automatic match)") istället för språk som antyder att
+bilden är "skyddad från en framtida om-matchning" — den funktionen finns
+inte längre.
+
+### Uppgift 2: nedladdning + lokal cache i `image-from-url`
+
+`miniset_client.py` fick en ny funktion, `download_image_bytes(image_url)`
+— separat från `fetch_product_image` (som fortfarande bara SLÅR UPP en
+url, precis som innan). Delningen matchar hur `api.py` redan skiljer på
+"hitta bilden" och "spara den" för foto-uppladdning.
+`api_set_unit_image_from_url` (`/api/units/<id>/image-from-url`) anropar
+nu båda i tur och ordning:
+
+1. `fetch_product_image(source_url)` — som innan, löser upp den slutgiltiga
+   bild-URL:en (antingen genom att hämta och parsa en produktsida, eller
+   direkt om `source_url` redan var en `/files/set/...`-bildfils-länk).
+2. `download_image_bytes(...)` på den URL:en — laddar ner bytesen och
+   avgör filändelsen från svarets `Content-Type`
+   (`_EXT_BY_CONTENT_TYPE`, med `image_url`s egen filändelse som
+   fallback).
+
+Filen sparas som `data/uploads/miniset/<unit_id>.<ext>` (samma
+`data/uploads/`-volym som `photo_path` redan använde) och
+`collection_units.image_url` sätts till den LOKALA sökvägen
+(`/uploads/miniset/<unit_id>.<ext>`), inte miniset.net:s egen URL.
+`image_source_url` förblir OFÖRÄNDRAD — den url:en Sivan faktiskt klistrade
+in (eller produktsidan härledd från en bildfils-länk, som innan) — bara
+använd för "Bild: miniset.net"-krediten, en länk, aldrig hämtad igen.
+
+**Rate-limit/circuit breaker gäller båda anropen**, precis som innan — en
+produktside-länk gör nu UPP TILL TVÅ skyddade anrop mot miniset.net
+(sidhämtning + nedladdning) istället för Fas 4b:s ett; en direkt
+bildfils-länk gör fortfarande bara ETT (nedladdningen — ingen sidhämtning
+behövs för den formen, samma som innan). `_looks_blocked` i
+`miniset_client.py` fick ett Content-Type-skydd (kollar bara text-/HTML-
+svar mot blockeringsfraserna) INNAN den läser `.text` — annars hade en
+nedladdad bildfil på flera hundra KB avkodats som text i onödan på varje
+lyckad nedladdning.
+
+**Städning av gamla filer:** `api._delete_cached_miniset_image` tar bort
+en tidigare lokalt cachad fil från disk innan den ersätts (om Sivan länkar
+om en enhet till en ny bild) eller nollställs (`DELETE
+/api/units/<id>/image`) — samma mönster som redan fanns för `photo_path` i
+`api_upload_unit_photo`. En no-op för en enhet vars `image_url` fortfarande
+är en fjärr-URL (hotlink från innan Fas 6) — ingenting lokalt att ta bort
+då.
+
+### Befintliga hotlinkade bilder: lämnas orörda, inte migrerade
+
+Beslut (kickoff-dokumentet rekommenderade den enklaste vägen och varnade
+uttryckligen mot att generera en burst av nya miniset.net-requests som
+sidoeffekt): enheter som redan hade en hotlinkad `image_url` (miniset.net-
+URL, inte `/uploads/miniset/...`) INNAN Fas 6 — vare sig från den gamla
+auto-matchningen eller en Fas 4b-länk sparad innan den här ombyggnaden —
+lämnas OFÖRÄNDRADE. De fortsätter fungera exakt som innan (webbläsaren
+hämtar bilden direkt från miniset.net vid varje sidvisning), tills Sivan
+manuellt länkar om enheten via samma "Länk till rätt bild"-fält — då körs
+den nya nedladdnings-koden och bilden cachas lokalt från och med det
+tillfället. INGEN bakgrundsjobb/migrering skannar igenom befintliga rader
+och laddar ner dem i onödan.
+
+### Ny route: `GET /uploads/<path:filename>` (upptäckt hål, fixat i samma veva)
+
+Under implementationen upptäcktes att `collection_units.photo_path`/det
+nya lokala `image_url`-formatet ALLTID sparades som `/uploads/<filnamn>`
+och användes rakt av som `<img src>` i `static/js/app.js` — men INGEN
+Flask-route serverade faktiskt `/uploads/...` som en rå sökväg (bara
+`GET /api/units/<id>/photo`, som slår upp filen via ett unit-id istället,
+fanns — och användes aldrig av frontend). Det här var alltså redan ett
+latent hål sedan Fas 2:s fotouppladdning, inte något Fas 6 introducerade,
+men Fas 6:s nya lokalt cachade bilder gjorde det akut (de skulle annars
+tyst 404:a i webbläsaren). Fixat med en ny route i `app.py`,
+`GET /uploads/<path:filename>` → `send_from_directory(api.UPLOAD_DIR,
+filename)`, registrerad efter blueprinten. Fixar bägge fallen
+(`photo_path` OCH det nya `image_url`-formatet) med samma route eftersom
+båda delar samma `/uploads/`-sökvägsprefix och samma bakomliggande
+`data/uploads/`-mapp.
+
+### Verifierat (offline — se `test_fas6.py`, körd i scratchpad, inte
+### committad i repot)
+
+**Stop-the-line-kravet i kickoff-dokumentet honorerat:** cooldownen från
+Fas 4c-rollouten är aktiv till 2026-08-28 (idag 2026-08-27), så INGET
+riktigt anrop gjordes mot miniset.net under hela den här fasens
+utveckling/verifiering — samma monkeypatch-`requests.get`-mönster som Fas
+4c:s incident-respons, mot en riktig men throwaway-DB-instans av hela
+Flask-appen (`app.test_client()`), 34/34 kontroller gröna:
+
+- En manuell produktside-länk → exakt 2 simulerade anrop (sidhämtning +
+  nedladdning), `image_url` pekar på `/uploads/miniset/<id>.jpg`,
+  `image_source_url` förblir produktsidans URL, filen finns faktiskt på
+  disk med rätt bytes, och `GET` av den lokala url:en via
+  `app.test_client()` serverar filen med **noll** ytterligare anrop mot
+  miniset.net (bevisar att den verkligen är lokal, inte fortfarande
+  hotlinkad).
+- En direkt bildfils-länk → exakt 1 simulerat anrop (bara nedladdningen,
+  ingen sidhämtning).
+- Att länka om en enhet till en ny bild tar bort den gamla cachade filen
+  från disk innan den nya sparas (bekräftat att den gamla filen är borta
+  och den nya finns, med rätt filändelse enligt den nya bildens
+  `Content-Type`).
+- `DELETE /api/units/<id>/image` tar bort den cachade filen från disk, inte
+  bara databasraden.
+- En enhet med en simulerad FÖRE-Fas-6-hotlink (`image_source='auto'`,
+  `image_url` en `https://miniset.net/...`-URL) lämnas orörd av
+  `_delete_cached_miniset_image` (no-op, ingen krasch, inget försök att ta
+  bort en fil som aldrig fanns lokalt).
+- Ett simulerat blockeringssvar (samma textmarkörer som Fas 4c) trippar
+  cirkelbrytaren på det FÖRSTA anropet (1 request innan blockeringen
+  upptäcks), och ett andra försök gör **noll** ytterligare anrop
+  (asserterat via en anropsräknare, inte bara visuell inspektion) — samma
+  garanti som Fas 4c redan verifierade, nu bekräftad igen mot den
+  ombyggda `image-from-url`-vägen. `database.miniset_requests` fick en
+  loggad, `blocked=1`-rad. Efter att `blocked_until` manuellt sattes
+  bakåt i tiden i DB:n (aldrig via ett riktigt anrop) återupptogs normal
+  bearbetning på nästa försök.
+- `POST /api/units/<id>/fetch-image` bekräftat helt borttagen (`404` från
+  Flask, inte en gammal handler som råkar svara).
+- En ogiltig (icke-miniset.net) länk avvisas fortfarande med `400`, noll
+  nätverksanrop.
+
+**Verifierat i en riktig webbläsare** (Playwright mot en lokalt körande
+`python app.py`, riktig lokal BSData-synkad databas, ingen riktig
+miniset.net-trafik): redigera-dialogen för en Death Guard "Plague
+Marines"-enhet (skapad via `entry_id`) visar INGEN
+`#image-auto-fetch-btn` (0 st), har `#image-link-input`/
+`#image-link-fetch-btn` (manuell länk, oförändrat), och den nya
+fälthinten ("...no automatic lookup is done for you") visas korrekt. Ett
+klick på "Fetch" med en medvetet ogiltig, icke-miniset.net-URL
+(`https://example.com/...`) triggar bara det egna `/api`-anropets `400`-
+felmeddelande i dialogen — webbläsarens nätverkslogg bekräftar att INGEN
+request lämnade sidan mot `miniset.net`. Testenheten raderad efteråt,
+databasen lämnad tom precis som innan testningen (bekräftat: `collection_
+units`/`miniset_requests`/`miniset_block` alla tomma efteråt).
+
+**Inte verifierat mot en riktig live-request** (per kickoff-dokumentets
+uppgift 5 och stop-the-line-kravet): den faktiska nedladdningen/cachningen
+mot en RIKTIG miniset.net-produktsida, och att bilden fortsätter fungera
+med utgående trafik mot miniset.net blockerad efteråt. Måste vänta tills
+cooldownen (2026-08-28) har passerat — se "Kvar att göra" nedan.
+
+### Kvar att göra
+
+- **Live-verifiering + deploy** (kickoff-dokumentets uppgift 5): vänta
+  till cooldownen lyfts (2026-08-28), länka en riktig miniset.net-
+  produktsida mot en riktig enhet, bekräfta att bilden laddas ner och
+  fortsätter visas med utgående trafik mot miniset.net blockerad, deploya
+  till Unraid enligt det vanliga flödet, verifiera live.
+- **`GET /uploads/<path:filename>`-fixen (se ovan) är inte
+  Playwright-verifierad mot en RIKTIG uppladdad bild** — bara indirekt via
+  `test_fas6.py`:s `app.test_client()`-anrop och den offline-bekräftade
+  logiken. Foto-uppladdning (Fas 2) har historiskt Playwright-testats som
+  fungerande i webbläsaren, så den nya routen fixar sannolikt ett hål som
+  aldrig märktes tidigare — värt att dubbelkolla vid nästa live-
+  verifiering ovan genom att faktiskt ladda upp ett foto och kontrollera
+  att det renderas efter en full sidladdning.

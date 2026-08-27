@@ -1,18 +1,35 @@
 """
-Klient mot miniset.net (https://miniset.net) för att hitta referensbilder
-(produktfoton) till samlingsenheter — se fas4-warasset-miniset-bilder.md och
-CLAUDE.md (Fas 4) för det fulla resonemanget.
+Klient mot miniset.net (https://miniset.net) för att bifoga referensbilder
+(produktfoton) till samlingsenheter — ENDAST via en av Sivan manuellt
+inklistrad länk. Se fas4b-warasset-manuell-bildlank.md för hur den flödet
+ursprungligen tillkom och fas6-warasset-retire-auto-image-match.md /
+CLAUDE.md ("Fas 6") för det fulla resonemanget bakom det här läget.
+
+Fas 6 (retired den automatiska fuzzy-matchningen): den gamla match_unit()
+-sök-/poängsättningslogiken (rapidfuzz-baserad namnmatchning, kategori-
+slug-gissning för 40k, paginerad fallback-crawler för Kill Team/AoS) är
+BORTTAGEN, inte bara avstängd — den var både den mest riskfyllda delen av
+integrationen (flera gissade requests per enhet, ingen människa som
+bekräftar att träffen faktiskt stämmer) och den mest sannolika drivkraften
+bakom Fas 4c-incidentens request-VOLYM. Det enda sättet en bild kan
+kopplas till en enhet nu är att Sivan klistrar in en specifik miniset.net-
+länk (fetch_product_image nedan) — ett enda, mänskligt bekräftat anrop.
+
+Fas 6 ändrade också vad som händer med den länken: själva bildFILEN laddas
+nu ner EN gång (download_image_bytes) och cachas lokalt av anroparen
+(api.py, data/uploads/miniset/<unit_id>.<ext>) istället för att hotlinkas
+för alltid — se api.api_set_unit_image_from_url. Den här modulen slår
+fortfarande bara UPP url:er; att spara bytes till disk är api.py:s jobb,
+samma ansvarsfördelning som foto-uppladdning redan hade.
 
 Viktigt att komma ihåg vid ändringar:
-- Bildfilerna lagras ALDRIG lokalt — bara image_url (hotlink) och
-  image_source_url (käll-sidan) sparas i databasen, se database.py:s
-  set_unit_image. Ladda aldrig ner och spara en kopia av själva bilden.
 - miniset.nets robots.txt sätter "Crawl-delay: 10" för alla user agents.
   _rate_limited_get nedan garanterar >= MIN_REQUEST_INTERVAL_SECONDS mellan
   att FÖRRA anropets svar kom in och att NÄSTA anrop skickas, via ett enda
-  globalt lås — oavsett hur många matchningar som triggas nära varandra i
-  UI:t (bakgrundstriggern vid spara + den manuella "hämta bild"-knappen
-  delar samma lås).
+  globalt lås. Efter Fas 6 finns bara EN triggerkälla kvar (den manuella
+  länken i redigera-dialogen), men den gör numera upp till TVÅ anrop för
+  en produktside-länk (sidhämtning + bildnedladdning) — samma delade lås/
+  cooldown skyddar båda, se download_image_bytes.
 """
 import os
 import re
@@ -22,7 +39,6 @@ from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
-from rapidfuzz import fuzz
 
 import database as db
 
@@ -35,20 +51,15 @@ MIN_REQUEST_INTERVAL_SECONDS = 10
 # miniset.net's own bot-protection flagged the Unraid server's IP despite
 # the 10-second global rate-limit below being correctly shared across all
 # call paths (verified by code audit during the incident — not a gap/lock
-# bug). The container's stdout logs from before the incident were already
-# gone by the time it was investigated (a routine redeploy recreates the
-# container, and Docker's default log driver doesn't survive that), so the
-# exact request timeline could not be forensically reconstructed. The most
-# plausible cause given what evidence remained: cumulative REQUEST VOLUME
-# during the compressed Fas 4/4b development+test cycle (many correctly
-# 10-second-spaced but still numerous curl/Playwright runs against the
-# live site, from one static IP, one fixed User-Agent, systematically
-# walking category/pagination pages) — a classic bot signature to a
-# volume-aware WAF even when no single request violates the crawl-delay.
-# Response to that: detect the block by its own wording (status code was
-# never confirmed, so don't gate on one) and back off for a configurable
-# cooldown, shared by every call path, persisted so a redeploy can't reset
-# it — see MinisetBlockedError/_looks_blocked/_raise_if_blocked below.
+# bug). The most plausible cause given the evidence that remained:
+# cumulative REQUEST VOLUME during Fas 4/4b's compressed development+test
+# cycle — the automatic fuzzy-match crawler this module used to contain
+# (many correctly-spaced but still numerous requests, systematically
+# walking category/pagination pages). That crawler was retired entirely in
+# Fas 6 for exactly this reason (see module docstring above); the circuit
+# breaker below stays regardless, since even the single remaining
+# human-triggered call path is still a real request to a site that has
+# already flagged us once.
 _BLOCK_TEXT_MARKERS = ("temporarily restricted", "suspicious automated activity")
 BLOCK_COOLDOWN_HOURS = float(os.environ.get("MINISET_BLOCK_COOLDOWN_HOURS", "48"))
 _BLOCK_REASON = "miniset.net returned its 'suspicious automated activity' restricted-access page"
@@ -56,11 +67,11 @@ _BLOCK_REASON = "miniset.net returned its 'suspicious automated activity' restri
 
 class MinisetBlockedError(Exception):
     """Raised by _rate_limited_get — either a fresh block was just detected,
-    or an earlier one is still in its cooldown window. Callers (match_unit,
-    fetch_product_image) catch this and turn it into a {"blocked": True,
-    ...} result instead of letting it look like an ordinary fetch failure,
-    so the UI/background trigger can tell the two apart (see CLAUDE.md,
-    Fas 4c)."""
+    or an earlier one is still in its cooldown window. Callers
+    (fetch_product_image, download_image_bytes) catch this and turn it into
+    a {"blocked": True, ...} result instead of letting it look like an
+    ordinary fetch failure, so the UI can tell the two apart (see
+    CLAUDE.md, Fas 4c)."""
 
     def __init__(self, blocked_until, reason):
         super().__init__(f"miniset.net access is in cooldown until {blocked_until} ({reason})")
@@ -70,13 +81,19 @@ class MinisetBlockedError(Exception):
 
 def _looks_blocked(resp):
     """Text-based detection, not status-code-based: the actual status code
-    miniset.net used for the block page was never confirmed (the incident
-    was investigated after the fact, see the module-level comment above),
-    so gating on a guessed code (403/429/...) risked missing it entirely.
-    Requires BOTH marker phrases from Sivan's literal observed wording
-    ("Access to this page has been temporarily restricted due to
-    suspicious automated activity from your network address") to avoid a
-    coincidental false positive from a single common phrase."""
+    miniset.net used for the block page was never confirmed (see CLAUDE.md,
+    Fas 4c), so gating on a guessed code risked missing it entirely.
+    Requires BOTH marker phrases from Sivan's literal observed wording to
+    avoid a coincidental false positive.
+
+    Fas 6: checked against Content-Type FIRST — download_image_bytes now
+    pulls actual binary image files through this same function, and
+    decoding a multi-hundred-KB JPEG as text on every download just to
+    check for two English phrases would be wasted work for no benefit (the
+    block page is always served as HTML, never as an image content-type)."""
+    content_type = (resp.headers.get("Content-Type") or "").lower()
+    if "html" not in content_type and "text" not in content_type:
+        return False
     text = (resp.text or "").lower()
     return all(marker in text for marker in _BLOCK_TEXT_MARKERS)
 
@@ -86,53 +103,6 @@ def _raise_if_blocked():
     if block:
         raise MinisetBlockedError(block["blocked_until"], block["reason"])
 
-# WarAssets egna game_system.key -> miniset.nets URL-slug för spellinjen.
-# Bekräftat genom att hämta https://miniset.net/sets/games-workshop live
-# under utvecklingen av Fas 4 (se CLAUDE.md) — gissa inte om detta ändras,
-# hämta sidan på nytt och verifiera.
-GAME_LINE_SLUGS = {
-    "40k": "warhammer-40k",
-    "kill_team": "kill-team",
-    "aos": "warhammer-age-of-sigmar",
-}
-
-# Träffsäkerhetströskel för rapidfuzz.fuzz.WRatio (0-100). Valt genom
-# stickprov mot riktiga miniset-produktnamn (se CLAUDE.md, Fas 4): en äkta
-# näraträff som "Intercessor Squad" (BSData) mot "Intercessors" (miniset)
-# hamnar strax under 76, medan obesläktade produkter (t.ex. "Plague Marines"
-# mot "Death Guard Battleforce: Vile Vectorium") hamnar under 40 — 75
-# skiljer de två robust utan att vara så högt att normala namnvarianter
-# (singular/plural, "Squad"-suffix) faller bort.
-MATCH_THRESHOLD = 75
-
-# 40k-fraktionssidor på miniset har (för de flesta fraktioner) en uppsättning
-# äldre force-org-liknande underkategorier (troops/elites/hq/vehicles/...)
-# som gör att en fraktion på hundratals produkter kan sökas igenom med EN
-# riktad request istället för att paginera igenom alla — verifierat live
-# (Death Guards "infantry"-underkategori gav 2 produkter, varav "Plague
-# Marines", mot 151 osorterade produkter på huvudfraktionssidan). Mappningen
-# är en approximation (BSData:s 10e-roller matchar inte exakt miniset:s
-# äldre kategorier) — se TODO.md för kända luckor.
-# Kill Team och AoS saknar motsvarande underkategorier på miniset
-# (verifierat live: både en Kill Team- och en AoS-fraktionssida gav bara
-# "/none/" som underkategori) — där görs istället bara ett anrop mot
-# fraktionslistans FÖRSTA sida, en medveten, dokumenterad begränsning.
-_ROLE_CATEGORY_HINTS = [
-    (re.compile(r"battleline|troop", re.I), ("troops", "infantry")),
-    (re.compile(r"transport", re.I), ("dedicated-transport", "vehicles")),
-    (re.compile(r"heavy support", re.I), ("heavy-support",)),
-    (re.compile(r"fast attack", re.I), ("fast-attack",)),
-    (re.compile(r"elite", re.I), ("elites",)),
-    (re.compile(r"character|hero|leader|^hq$", re.I), ("hq", "characters")),
-    (re.compile(r"vehicle|mounted", re.I), ("vehicles",)),
-    (re.compile(r"monster|beast", re.I), ("monstrous-creatures",)),
-]
-
-# Totalt antal miniset.net-requests EN ENDA matchning max får göra. Håller
-# värsta-fall-latensen nere (vid 10 sek/request blir taket ~30 sekunder,
-# "flera sekunder" enligt kickoff-dokumentet — inte minuter av paginering
-# genom en fraktion på hundratals produkter).
-_MAX_REQUESTS_PER_MATCH = 3
 
 _rate_lock = threading.Lock()
 _last_request_finished_at = 0.0
@@ -149,7 +119,9 @@ def _rate_limited_get(url):
     acquiring it — the second check closes the race where the request
     immediately ahead of us in the queue is the one that just tripped the
     block) and for the durable request log (see database.py's
-    miniset_requests table)."""
+    miniset_requests table). Fas 6: also the single choke point for
+    download_image_bytes, not just fetch_product_image — every real
+    request to miniset.net, whatever it's for, goes through here."""
     global _last_request_finished_at
     _raise_if_blocked()
     with _rate_lock:
@@ -176,125 +148,22 @@ def _rate_limited_get(url):
         return resp
 
 
-def _slugify(text):
-    text = (text or "").lower().replace("'", "").replace("’", "")
-    text = re.sub(r"[^a-z0-9]+", "-", text)
-    return text.strip("-")
-
-
-# Kända namnskillnader mellan BSData:s katalognamn och miniset.nets
-# fraktionsslugs, upptäckta under testning mot den riktiga databasen (se
-# CLAUDE.md, Fas 4) — t.ex. Kill Teams BSData-katalog heter "Asuryani" men
-# miniset.net använder "aeldari" (40k:s egen katalog heter redan "Aeldari",
-# så mismatchen är Kill Team-specifik). INTE en uttömmande lista över alla
-# namnskillnader — se TODO.md för fraktioner där matchningen ändå missar.
-_FACTION_SLUG_ALIASES = {
-    "asuryani": "aeldari",
-}
-
-
-def _faction_slug(system_key, catalogue_name):
-    """catalogues.name är INTE bara fraktionsnamnet rakt av — formen skiljer
-    sig mellan spelsystemen (verifierat mot den riktiga databasen under
-    utvecklingen av Fas 4, se CLAUDE.md):
-
-    - 40k: alltid "<Grand Alliance> - [<kapitel-/underfraktion> - ]<Fraktion>"
-      (t.ex. "Chaos - Death Guard", "Imperium - Adeptus Astartes - Space
-      Marines") — den faktiska armén miniset.net känner till är alltid
-      SISTA segmentet.
-    - aos: "<Fraktion>[ - <underlista/warband>]" (t.ex. "Cities of Sigmar -
-      The Iron March") — här är det istället FÖRSTA segmentet som är
-      fraktionen, omvänt mot 40k.
-    - kill_team: catalogues.name ÄR redan bara fraktionsnamnet, ingen
-      uppdelning behövs.
-
-    "[LEGENDS]"-liknande bracket-taggar (AoS) hör inte till fraktionsnamnet
-    och tas bort innan uppdelningen."""
-    name = re.sub(r"\[[^\]]*\]", "", catalogue_name or "").strip()
-    parts = [p.strip() for p in name.split(" - ") if p.strip()]
-    if not parts:
-        return ""
-    faction = parts[-1] if system_key == "40k" else parts[0]
-    slug = _slugify(faction)
-    return _FACTION_SLUG_ALIASES.get(slug, slug)
-
-
-def _category_candidates_for_role(system_key, role):
-    if system_key != "40k" or not role:
-        return []
-    candidates = []
-    for pattern, slugs in _ROLE_CATEGORY_HINTS:
-        if pattern.search(role):
-            for slug in slugs:
-                if slug not in candidates:
-                    candidates.append(slug)
-    return candidates
-
-
 def _colorbox_image_url(scope):
     """Bryter ut originalbildens URL ur en <a class="colorbox"> — en delad
-    primitiv mellan listningssidans per-produkt-parsing
-    (_parse_category_page) och en enskild, manuellt länkad produktsidas
-    bildextraktion (fetch_product_image, Fas 4b). BÅDA sidtyperna använder
-    samma colorbox-markup för originalbilden (samma fil som t.ex.
-    .../set/gw-99810102007-0.jpg), verifierat live under utvecklingen —
-    men en produktsida saknar listningssidans div.set-<id>/gallery_title-
-    wrapper, så bara den HÄR extraktionsbiten (inte hela sidparsern) går
-    att återanvända rakt av mellan de två fallen."""
+    primitiv mellan en enskild, manuellt länkad produktsidas bildextraktion
+    (fetch_product_image nedan). Verifierat live under utvecklingen av
+    Fas 4/4b: samma colorbox-markup för originalbilden (samma fil som t.ex.
+    .../set/gw-99810102007-0.jpg) används på både listnings- och
+    produktsidor."""
     img_a = scope.select_one("a.colorbox")
     return img_a.get("href") if img_a else None
 
 
-def _parse_category_page(html):
-    """Bryter ut (namn, produkt-url, bild-url) för varje produkt på en
-    kategori-/fraktionslistningssida. DOM-strukturen verifierades live under
-    utvecklingen (se CLAUDE.md, Fas 4): varje produkt ligger i en
-    <div class="set-<nod-id>">, med produktnamn+länk i ett nästlat
-    div.gallery_title och originalbilden i en nästlad a.colorbox (se
-    _colorbox_image_url)."""
-    soup = BeautifulSoup(html, "html.parser")
-    entries = []
-    for block in soup.find_all("div", class_=re.compile(r"^set-\d+$")):
-        title_a = block.select_one("div.gallery_title a")
-        image_url = _colorbox_image_url(block)
-        if not title_a or not image_url:
-            continue
-        href = title_a.get("href")
-        name = title_a.get_text(strip=True)
-        if not href or not name:
-            continue
-        entries.append({
-            "name": name,
-            "product_url": BASE_URL + href if href.startswith("/") else href,
-            "image_url": image_url,
-        })
-    return entries
-
-
-def _fetch_category(game_line_slug, faction_slug, category_slug=None, page=1):
-    path = f"/sets/games-workshop/{game_line_slug}/{faction_slug}"
-    if category_slug:
-        path += f"/{category_slug}/"
-    if page > 1:
-        path += f"page-{page}" if category_slug else f"/page-{page}"
-    try:
-        resp = _rate_limited_get(BASE_URL + path)
-    except requests.RequestException as e:
-        print(f"[miniset_client] Nätverksfel mot {path}: {e}")
-        return []
-    if resp.status_code != 200:
-        return []
-    return _parse_category_page(resp.text)
-
-
 # En manuell bildlänk (Fas 4b) accepteras i TVÅ former:
-#   1. En produktsida, /sets/<produkt-id> — huvudbilden bryts ut ur sidan
-#      (som tidigare).
+#   1. En produktsida, /sets/<produkt-id> — huvudbilden bryts ut ur sidan.
 #   2. En direkt bildfils-URL, /files/set/<produkt-id>-<n>.<ext> — t.ex.
 #      https://miniset.net/files/set/gw-99120102114-3.jpg för att peka på
 #      EN SPECIFIK bild i produktens galleri (inte bara "-0"-huvudbilden).
-#      Redan den slutgiltiga bild-URL:en, så INGET nätverksanrop mot
-#      miniset.net behövs för den varianten — bara formkontrollen nedan.
 # Ingen annan sökväg accepteras, och ingen annan domän som råkar innehålla
 # "miniset.net" i sökvägen eller som underdomän/suffix
 # (urlparse().netloc jämförs exakt, inte med "in").
@@ -333,25 +202,27 @@ def _miniset_file_product_id(url):
 
 
 def fetch_product_image(source_url):
-    """Hämtar bilden för EN specifik, av Sivan manuellt vald
+    """Slår upp bild-url:en för EN specifik, av Sivan manuellt vald
     miniset.net-länk (Fas 4b, se fas4b-warasset-manuell-bildlank.md — för
-    edge-cases den automatiska matchningen i match_unit() inte kan lösa:
-    flera "sculpts"/utgåvor av samma enhet, eller en hjälte som bara säljs
-    som del av ett multi-hjälte-set), ELLER en specifik bild i en produkts
-    galleri (en direkt bildfils-länk, se _miniset_file_product_id).
+    edge-cases en fuzzy-matchning aldrig kunde lösa: flera "sculpts"/
+    utgåvor av samma enhet, eller en hjälte som bara säljs som del av ett
+    multi-hjälte-set), ELLER en specifik bild i en produkts galleri (en
+    direkt bildfils-länk, se _miniset_file_product_id).
 
-    En produktside-länk går igenom SAMMA globala rate-limit som
-    match_unit() (_rate_limited_get) och återanvänder samma
-    bildextraktions-primitiv (_colorbox_image_url) som listningssidorna,
-    se den funktionens docstring för varför bara primitiven (inte hela
-    sidparsern) återanvänds. En direkt bildfils-länk kräver INGET
-    nätverksanrop — den ÄR redan den slutgiltiga bild-URL:en.
+    Gör INTE själva nedladdningen av bildbytes — det gör
+    download_image_bytes, anropad separat av api.py efter att den här
+    funktionen lyckats (se fas6-warasset-retire-auto-image-match.md).
+
+    En produktside-länk går igenom det globala rate-limitet
+    (_rate_limited_get) och återanvänder _colorbox_image_url, se den
+    funktionens docstring. En direkt bildfils-länk kräver INGET nätverks-
+    anrop HÄR — den ÄR redan den slutgiltiga bild-URL:en (nedladdningen av
+    dess bytes i download_image_bytes gör dock ett anrop).
 
     Returnerar {"image_url": "...", "source_page_url": "..."} vid träff
     (source_page_url är produktsidan krediten ska länka till — härledd
     från filnamnets produkt-id om en direkt bildlänk gavs, annars länken
-    själv), annars {"error": "..."} — ALDRIG en tyst no-op (kickoff-
-    dokumentets krav)."""
+    själv), annars {"error": "..."} — ALDRIG en tyst no-op."""
     url = (source_url or "").strip()
 
     file_product_id = _miniset_file_product_id(url)
@@ -378,57 +249,40 @@ def fetch_product_image(source_url):
     return {"image_url": image_url, "source_page_url": url}
 
 
-def match_unit(system_key, catalogue_name, entry_name, role=None):
-    """Försöker hitta en produktbild på miniset.net för en BSData-entry.
+# Content-Type -> filändelse för nedladdade bilder (Fas 6). Faller tillbaka
+# på bildfils-URL:ens egen filändelse (se download_image_bytes) om
+# servern skulle svara med en okänd/saknad Content-Type.
+_EXT_BY_CONTENT_TYPE = {
+    "image/jpeg": ".jpg",
+    "image/pjpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
 
-    Returnerar {"matched": True, "image_url", "image_source_url", "score",
-    "matched_name"} vid en träff över MATCH_THRESHOLD, annars
-    {"matched": False}. Gör aldrig fler än _MAX_REQUESTS_PER_MATCH anrop mot
-    miniset.net, och varje anrop passerar det globala rate-limitet i
-    _rate_limited_get."""
-    game_line_slug = GAME_LINE_SLUGS.get(system_key)
-    if not game_line_slug or not catalogue_name or not entry_name:
-        return {"matched": False}
 
-    faction_slug = _faction_slug(system_key, catalogue_name)
-    if not faction_slug:
-        return {"matched": False}
+def download_image_bytes(image_url):
+    """Laddar ner de faktiska bilbytesen för en image_url som redan slagits
+    upp av fetch_product_image, så anroparen (api.py) kan spara en lokal
+    kopia istället för att hotlinka — Fas 6, se
+    fas6-warasset-retire-auto-image-match.md, uppgift 2. Går igenom SAMMA
+    rate-limit/circuit-breaker som alla andra anrop mot miniset.net
+    (_rate_limited_get) — nedladdningen är fortfarande ETT riktigt anrop,
+    inte undantaget bara för att det "bara är en nedladdning" nu.
 
-    # (category_slug, page)-par att försöka, i ordning. Rollgissningarna
-    # (bara 40k, se _category_candidates_for_role) går alltid först eftersom
-    # de ger mycket högre träffsäkerhet per request (en riktad underlista på
-    # ett fåtal produkter istället för en osorterad fraktionslista på
-    # hundratals). Återstående requestbudget läggs på att PAGINERA den råa
-    # fraktionslistan (kill_team/aos har inga användbara underkategorier på
-    # miniset.net, se modulens kommentar vid _ROLE_CATEGORY_HINTS) — bättre
-    # täckning än att bara titta på första sidan, fortfarande begränsat av
-    # _MAX_REQUESTS_PER_MATCH.
-    category_slugs = _category_candidates_for_role(system_key, role)
-    attempts = [(cat, 1) for cat in category_slugs]
-    for page in range(1, _MAX_REQUESTS_PER_MATCH - len(attempts) + 1):
-        attempts.append((None, page))
-    attempts = attempts[:_MAX_REQUESTS_PER_MATCH]
-
-    best_score = -1
-    best_entry = None
+    Returnerar {"content": bytes, "ext": ".jpg"} vid lyckad nedladdning,
+    annars {"error": "..."} (plus "blocked"/"blocked_until" om circuit
+    breakern löste ut) — samma form som fetch_product_image:s felfall."""
     try:
-        for category_slug, page in attempts:
-            entries = _fetch_category(game_line_slug, faction_slug, category_slug, page)
-            for entry in entries:
-                score = fuzz.WRatio(entry_name, entry["name"])
-                if score > best_score:
-                    best_score, best_entry = score, entry
-            if best_score >= 97:
-                break  # nära-perfekt träff — inget skäl att göra fler anrop
+        resp = _rate_limited_get(image_url)
     except MinisetBlockedError as e:
-        return {"matched": False, "blocked": True, "blocked_until": e.blocked_until, "reason": str(e)}
-
-    if best_entry and best_score >= MATCH_THRESHOLD:
-        return {
-            "matched": True,
-            "image_url": best_entry["image_url"],
-            "image_source_url": best_entry["product_url"],
-            "matched_name": best_entry["name"],
-            "score": best_score,
-        }
-    return {"matched": False}
+        return {"error": str(e), "blocked": True, "blocked_until": e.blocked_until}
+    except requests.RequestException as e:
+        return {"error": f"Could not download the image from miniset.net: {e}"}
+    if resp.status_code != 200:
+        return {"error": f"miniset.net responded with status code {resp.status_code} while downloading the image"}
+    content_type = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    ext = _EXT_BY_CONTENT_TYPE.get(content_type)
+    if not ext:
+        ext = os.path.splitext(urlparse(image_url).path)[1].lower() or ".jpg"
+    return {"content": resp.content, "ext": ext}

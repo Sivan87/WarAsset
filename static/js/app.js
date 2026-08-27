@@ -148,8 +148,11 @@
   // döljer alltid en ev. miniset.net-bild men rör den aldrig.
   // Fas 4b: image_source ("auto"/"manual") avgör krediten — en manuellt
   // vald bild (se redigera-enhet-dialogens bildsektion, imageLinkRowHtml)
-  // får en liten 📌-markering så det syns att den är skyddad från att
-  // skrivas över av en framtida automatisk om-matchning.
+  // får en liten 📌-markering. Fas 6 tog bort den automatiska matchningen
+  // helt, så 'auto' bara förekommer på rader sparade innan dess (legacy
+  // hotlink, se CLAUDE.md "Fas 6") — inte längre "skyddad från
+  // om-matchning" (den funktionen finns inte längre), bara en historisk
+  // proveniensmarkör.
   function unitPhotoHtml(u) {
     if (u.photo_path) {
       return `<div class="unit-photo lighten"><img src="${escapeHtml(u.photo_path)}" alt=""></div>`;
@@ -158,8 +161,8 @@
       const manual = u.image_source === 'manual';
       const creditLabel = (manual ? '📌 ' : '') + 'Image: miniset.net';
       const creditTitle = manual
-        ? 'Manually selected image — protected from automatic re-matching'
-        : 'Automatically matched image from miniset.net';
+        ? 'Manually selected image'
+        : 'Reference image from miniset.net (legacy automatic match)';
       return `
         <div class="unit-photo lighten">
           <img src="${escapeHtml(u.image_url)}" alt="">
@@ -453,7 +456,6 @@
       imageSource: null,
       manualImageLinkInput: '',
       manualImageLoading: false,
-      autoImageLoading: false,
       imageError: null,
       customName: '',
       customPoints: '',
@@ -485,7 +487,6 @@
       imageSource: u.image_source,
       manualImageLinkInput: '',
       manualImageLoading: false,
-      autoImageLoading: false,
       imageError: null,
       customName: u.name_override || u.name || '',
       customPoints: u.points_override != null ? String(u.points_override) : '',
@@ -557,30 +558,27 @@
       </div>`;
   }
 
-  // Fas 4b: manuell bildlänk (se fas4b-warasset-manuell-bildlank.md) — för
-  // de edge-cases automatisk matchning inte kan lösa (flera "sculpts" av
-  // samma enhet, en hjälte bara såld i ett multi-hjälte-set). Fungerar
-  // oavsett spelsystem/anpassad enhet, precis som fotouppladdning bara
-  // tillgänglig vid redigering (kräver ett existerande unit-id).
-  // Fas 4/4b bild-hantering (auto-matchning, manuell länk, ta bort) samlad
-  // HÄR i redigera-dialogen istället för som knappar på enhetskortet/
-  // listraden (flyttat på Sivans begäran) — ett enda ställe att hantera en
-  // enhets referensbild, oavsett om den kom automatiskt eller manuellt.
+  // Fas 4b: manuell bildlänk (se fas4b-warasset-manuell-bildlank.md) — det
+  // enda sättet en bild kan kopplas sedan Fas 6 tog bort den automatiska
+  // fuzzy-matchningen helt (se fas6-warasset-retire-auto-image-match.md).
+  // Fungerar oavsett spelsystem/anpassad enhet, precis som fotouppladdning
+  // bara tillgänglig vid redigering (kräver ett existerande unit-id).
+  // Fas 4/4b bild-hantering (manuell länk, ta bort) samlad HÄR i
+  // redigera-dialogen istället för som knappar på enhetskortet/listraden
+  // (flyttat på Sivans begäran) — ett enda ställe att hantera en enhets
+  // referensbild.
   function imageLinkRowHtml() {
     const d = state.dialog;
     if (!d.editingId) return '';
     const preview = d.imageUrl
       ? `<div class="unit-photo lighten image-link-preview"><img src="${escapeHtml(d.imageUrl)}" alt=""></div>`
       : `<div class="unit-photo image-link-preview"><span class="unit-photo-label">No image</span></div>`;
+    // 'auto' badges only ever appear on rows saved before Fas 6 retired the
+    // automatic matcher — kept for historical clarity, never produced by
+    // fresh saves anymore (see CLAUDE.md, "Fas 6").
     const badge = d.imageSource === 'manual'
       ? '<span class="tag tag-accent">📌 Manually selected</span>'
-      : (d.imageSource === 'auto' ? '<span class="tag tag-neutral">Auto-matched</span>' : '');
-    // Auto-matchning kräver en BSData-koppling (entry_id) för att veta
-    // fraktion/roll — men "Remove image" ska finnas även för anpassade
-    // enheter med en manuellt länkad bild (fungerar oavsett entry_id).
-    const autoFetchBtn = d.entryId != null
-      ? `<button type="button" class="btn btn-ghost" id="image-auto-fetch-btn" ${d.autoImageLoading ? 'disabled' : ''}>${d.autoImageLoading ? 'Fetching…' : (d.imageUrl ? 'Re-match image' : 'Fetch image')}</button>`
-      : '';
+      : (d.imageSource === 'auto' ? '<span class="tag tag-neutral">Auto-matched (legacy)</span>' : '');
     const removeBtn = d.imageUrl
       ? `<button type="button" class="btn btn-ghost" id="image-remove-btn">Remove image</button>`
       : '';
@@ -590,14 +588,14 @@
         <div class="image-link-row">
           ${preview}
           <div class="image-link-controls">
-            <div class="image-link-actions">${autoFetchBtn}${removeBtn}${badge}</div>
+            <div class="image-link-actions">${removeBtn}${badge}</div>
             <div class="image-link-manual">
               <input class="input" type="text" id="image-link-input" autocomplete="off" placeholder="https://miniset.net/sets/… or /files/set/…" value="${escapeHtml(d.manualImageLinkInput)}">
               <button type="button" class="btn btn-ghost" id="image-link-fetch-btn" ${d.manualImageLoading ? 'disabled' : ''}>${d.manualImageLoading ? 'Fetching…' : 'Fetch'}</button>
             </div>
           </div>
         </div>
-        <p class="field-hint">Paste a link to a specific product page (miniset.net/sets/…) or image (miniset.net/files/set/…) if the automatic match picked the wrong one.</p>
+        <p class="field-hint">Paste a link to a product page (miniset.net/sets/…) or a specific image (miniset.net/files/set/…) — the image is downloaded and stored here, no automatic lookup is done for you.</p>
         ${d.imageError ? `<p class="field-hint" style="color:var(--color-neutral-300)">${escapeHtml(d.imageError)}</p>` : ''}
       </div>`;
   }
@@ -799,35 +797,7 @@
     updateImageLinkRow();
   }
 
-  // Fas 4b: auto-matchning/borttagning flyttade in i dialogen (se
-  // imageLinkRowHtml ovan). Samma "skriv aldrig över en manuell bild i
-  // tysthet"-bekräftelse som tidigare fanns på enhetskortets knapp.
-  async function fetchAutoImageInDialog() {
-    const d = state.dialog;
-    if (!d || !d.editingId) return;
-    let force = false;
-    if (d.imageSource === 'manual') {
-      if (!window.confirm('This unit has a manually selected image. Replace it with an automatic match?')) return;
-      force = true;
-    }
-    d.autoImageLoading = true;
-    d.imageError = null;
-    updateImageLinkRow();
-    try {
-      const updated = await api('/api/units/' + d.editingId + '/fetch-image' + (force ? '?force=true' : ''), { method: 'POST' });
-      d.imageUrl = updated.image_url;
-      d.imageSourceUrl = updated.image_source_url;
-      d.imageSource = updated.image_source;
-      const u = state.units.find((x) => x.id === d.editingId);
-      if (u) { u.image_url = updated.image_url; u.image_source_url = updated.image_source_url; u.image_source = updated.image_source; }
-      if (!updated.image_url) { d.imageError = 'No matching image was found on miniset.net.'; }
-    } catch (e) {
-      d.imageError = e.message;
-    }
-    d.autoImageLoading = false;
-    updateImageLinkRow();
-  }
-
+  // Fas 4b: borttagning flyttade in i dialogen (se imageLinkRowHtml ovan).
   async function removeImageInDialog() {
     const d = state.dialog;
     if (!d || !d.editingId) return;
@@ -1019,8 +989,6 @@
       if (result) { selectEntry(parseInt(result.getAttribute('data-entry-id'), 10)); return; }
       const imageLinkBtn = e.target.closest('#image-link-fetch-btn');
       if (imageLinkBtn) { fetchManualImage(); return; }
-      const autoFetchBtn = e.target.closest('#image-auto-fetch-btn');
-      if (autoFetchBtn) { fetchAutoImageInDialog(); return; }
       const removeImgBtn = e.target.closest('#image-remove-btn');
       if (removeImgBtn) { removeImageInDialog(); return; }
     });
